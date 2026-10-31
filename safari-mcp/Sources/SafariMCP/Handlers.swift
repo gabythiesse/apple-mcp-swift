@@ -5,11 +5,11 @@ enum Handlers {
 
     // MARK: - Arguments
 
-    private static func refs(_ a: JSON, _ key: String = "onglets") throws -> [TabRef] {
+    private static func refs(_ a: JSON, _ key: String = "tabs") throws -> [TabRef] {
         let objs = a.objects(key) ?? []
         if objs.isEmpty { return [try AS.currentTab()] }
         return try objs.map { o in
-            guard let w = o.int("fenetre_id"), let i = o.int("index") else { throw MCPError("chaque onglet demande fenetre_id et index") }
+            guard let w = o.int("window_id"), let i = o.int("index") else { throw MCPError("each tab needs window_id and index") }
             return TabRef(fenetre: w, index: i)
         }
     }
@@ -29,7 +29,7 @@ enum Handlers {
     // MARK: - Onglets
 
     static func onglets(_ a: JSON) throws -> Any {
-        let cible = a.int("fenetre_id").map { "{window id \($0)}" } ?? "(every window whose visible is true)"
+        let cible = a.int("window_id").map { "{window id \($0)}" } ?? "(every window whose visible is true)"
         let d = try AS.run("""
         tell application "Safari"
           set out to {}
@@ -43,7 +43,7 @@ enum Handlers {
           return out
         end tell
         """)
-        let filtre = a.nonEmpty("texte").map(fold)
+        let filtre = a.nonEmpty("text").map(fold)
         var tous: [JSON] = []
         for w in d.items {
             let l = w.items
@@ -54,24 +54,24 @@ enum Handlers {
                 let titre = nom.string ?? ""
                 let url = k < urls.count ? urls[k].string ?? "about:blank" : ""
                 if let filtre, !fold(titre + " " + url).contains(filtre) { continue }
-                var o: JSON = ["fenetre_id": wid, "index": k + 1, "titre": titre, "url": url]
-                if k + 1 == actif { o["actif"] = true }
+                var o: JSON = ["window_id": wid, "index": k + 1, "title": titre, "url": url]
+                if k + 1 == actif { o["active"] = true }
                 tous.append(o)
             }
         }
-        let limite = max(1, a.int("limite") ?? 50)
-        var out: JSON = ["fenetres": d.items.count, "onglets": Array(tous.prefix(limite))]
-        if tous.count > limite { out["total"] = tous.count; out["tronque"] = true }
+        let limite = max(1, a.int("limit") ?? 50)
+        var out: JSON = ["windows": d.items.count, "tabs": Array(tous.prefix(limite))]
+        if tous.count > limite { out["total"] = tous.count; out["truncated"] = true }
         return out
     }
 
     static func ouvrir(_ a: JSON) throws -> Any {
         let urls = (a.strings("urls") ?? []).map(normaliser)
-        guard !urls.isEmpty else { throw MCPError("paramètre manquant : urls") }
+        guard !urls.isEmpty else { throw MCPError("missing parameter: urls") }
         let liste = "{" + urls.map(AS.lit).joined(separator: ", ") + "}"
         var fenetre: Int
         var indexes: [Int]
-        if a.bool("prive") == true {
+        if a.bool("private") == true {
             fenetre = try AS.newPrivateWindow()
             // La 1re URL remplace la page de démarrage (onglet 1), les suivantes s'ouvrent en nouveaux onglets
             let n = try AS.run("""
@@ -86,8 +86,8 @@ enum Handlers {
             """).int ?? urls.count
             indexes = Array(1...max(1, n))
         } else {
-            var w = a.int("fenetre_id") ?? 0
-            if w == 0 && a.bool("nouvelle_fenetre") != true { w = try AS.visibleWindowIDs().first ?? 0 }
+            var w = a.int("window_id") ?? 0
+            if w == 0 && a.bool("new_window") != true { w = try AS.visibleWindowIDs().first ?? 0 }
             let d = try AS.run("""
             tell application "Safari"
               set W to \(w)
@@ -105,7 +105,7 @@ enum Handlers {
                   if W is not 0 then exit repeat
                   delay 0.05
                 end repeat
-                if W is 0 then error "nouvelle fenêtre introuvable"
+                if W is 0 then error "new window not found"
                 set end of idx to 1
                 set reste to rest of urls
               end if
@@ -120,37 +120,37 @@ enum Handlers {
             end tell
             """)
             let l = d.items
-            guard l.count == 2, let wid = l[0].int else { throw MCPError("ouverture : réponse inattendue") }
+            guard l.count == 2, let wid = l[0].int else { throw MCPError("open: unexpected response") }
             fenetre = wid
             indexes = l[1].ints
         }
         var onglets: [JSON] = zip(indexes, urls).map { ["index": $0, "url": $1] }
-        if a.bool("attendre") == true {
+        if a.bool("wait") == true {
             let refs = indexes.map { TabRef(fenetre: fenetre, index: $0) }
             var avant: [TabRef: String] = [:]
             for (r, u) in zip(refs, urls) where u != "about:blank" { avant[r] = "about:blank" }
-            if a.bool("prive") == true, let r = refs.first { avant[r] = "favorites://" }  // page de démarrage
+            if a.bool("private") == true, let r = refs.first { avant[r] = "favorites://" }  // page de démarrage
             let etats = AS.waitLoaded(refs, before: avant)
             for k in onglets.indices {
                 guard let e = etats[refs[k]] else { continue }
-                onglets[k]["titre"] = e.titre
+                onglets[k]["title"] = e.titre
                 onglets[k]["url"] = e.url.isEmpty ? onglets[k]["url"] : e.url
-                if !e.pret { onglets[k]["charge"] = false }
+                if !e.pret { onglets[k]["loaded"] = false }
             }
         }
-        return ["ok": true, "fenetre_id": fenetre, "onglets": onglets]
+        return ["ok": true, "window_id": fenetre, "tabs": onglets]
     }
 
     static func naviguer(_ a: JSON) throws -> Any {
         let actions = a.objects("actions") ?? []
-        guard !actions.isEmpty else { throw MCPError("paramètre manquant : actions") }
+        guard !actions.isEmpty else { throw MCPError("missing parameter: actions") }
         var items: [(TabRef, String, String)] = []
         for o in actions {
-            guard let w = o.int("fenetre_id"), let i = o.int("index") else { throw MCPError("chaque action demande fenetre_id et index") }
+            guard let w = o.int("window_id"), let i = o.int("index") else { throw MCPError("each action needs window_id and index") }
             let url = o.nonEmpty("url").map(normaliser) ?? ""
             let k = o.nonEmpty("action") ?? (url.isEmpty ? "" : "url")
-            guard ["url", "recharger", "precedent", "suivant", "activer"].contains(k) else { throw MCPError("action inconnue : \(k) (url, recharger, precedent, suivant, activer)") }
-            if k == "url" && url.isEmpty { throw MCPError("action url sans url") }
+            guard ["url", "reload", "back", "forward", "activate"].contains(k) else { throw MCPError("unknown action: \(k) (url, reload, back, forward, activate)") }
+            if k == "url" && url.isEmpty { throw MCPError("action url without url") }
             items.append((TabRef(fenetre: w, index: i), k, url))
         }
         let liste = "{" + items.map { "{\($0.0.fenetre), \($0.0.index), \(AS.lit($0.1)), \(AS.lit($0.2))}" }.joined(separator: ", ") + "}"
@@ -165,13 +165,13 @@ enum Handlers {
               set k to item 3 of r
               if k is "url" then
                 set URL of t to (item 4 of r)
-              else if k is "recharger" then
+              else if k is "reload" then
                 set URL of t to avant
-              else if k is "precedent" then
+              else if k is "back" then
                 do JavaScript "history.back()" in t
-              else if k is "suivant" then
+              else if k is "forward" then
                 do JavaScript "history.forward()" in t
-              else if k is "activer" then
+              else if k is "activate" then
                 set current tab of window id (item 1 of r) to t
                 set index of window id (item 1 of r) to 1
               end if
@@ -183,7 +183,7 @@ enum Handlers {
           return out
         end tell
         """)
-        if items.contains(where: { $0.1 == "activer" }) { AS.activerSafari() }
+        if items.contains(where: { $0.1 == "activate" }) { AS.activerSafari() }
         var res: [JSON] = []
         var aAttendre: [TabRef] = []
         var avant: [TabRef: String] = [:]
@@ -192,32 +192,32 @@ enum Handlers {
             var o = ref.json
             if l.first?.string == "ok" {
                 o["ok"] = true
-                if k != "activer" { aAttendre.append(ref); if k != "recharger" { avant[ref] = l.count > 1 ? l[1].string ?? "" : "" } }
-            } else { o["ok"] = false; o["erreur"] = l.first?.string ?? "échec" }
+                if k != "activate" { aAttendre.append(ref); if k != "reload" { avant[ref] = l.count > 1 ? l[1].string ?? "" : "" } }
+            } else { o["ok"] = false; o["error"] = l.first?.string ?? "failed" }
             res.append(o)
         }
-        if a.bool("attendre") == true, !aAttendre.isEmpty {
+        if a.bool("wait") == true, !aAttendre.isEmpty {
             if aAttendre.contains(where: { avant[$0] == nil }) { Thread.sleep(forTimeInterval: 0.3) }  // rechargement : laisser partir la requête
             let etats = AS.waitLoaded(aAttendre, before: avant, timeout: 10)
             for k in res.indices {
-                let ref = TabRef(fenetre: res[k]["fenetre_id"] as! Int, index: res[k]["index"] as! Int)
+                let ref = TabRef(fenetre: res[k]["window_id"] as! Int, index: res[k]["index"] as! Int)
                 guard let e = etats[ref] else { continue }
-                res[k]["titre"] = e.titre; res[k]["url"] = e.url
-                if !e.pret { res[k]["charge"] = false }
+                res[k]["title"] = e.titre; res[k]["url"] = e.url
+                if !e.pret { res[k]["loaded"] = false }
             }
         }
-        return ["resultats": res]
+        return ["results": res]
     }
 
     static func fermer(_ a: JSON) throws -> Any {
-        let tabs = try (a.objects("onglets") ?? []).map { o -> (TabRef, String) in
-            guard let w = o.int("fenetre_id"), let i = o.int("index") else { throw MCPError("chaque onglet demande fenetre_id et index") }
-            return (TabRef(fenetre: w, index: i), o.nonEmpty("url_attendue") ?? "")
+        let tabs = try (a.objects("tabs") ?? []).map { o -> (TabRef, String) in
+            guard let w = o.int("window_id"), let i = o.int("index") else { throw MCPError("each tab needs window_id and index") }
+            return (TabRef(fenetre: w, index: i), o.nonEmpty("expected_url") ?? "")
         }
-        var brutes: [Any] = a["fenetres"] as? [Any] ?? []
-        if let s = a["fenetres"] as? String { brutes = (try? JSONSerialization.jsonObject(with: Data(s.utf8))) as? [Any] ?? [s] }
+        var brutes: [Any] = a["windows"] as? [Any] ?? []
+        if let s = a["windows"] as? String { brutes = (try? JSONSerialization.jsonObject(with: Data(s.utf8))) as? [Any] ?? [s] }
         let fenetres = brutes.compactMap { ($0 as? NSNumber)?.intValue ?? ($0 as? String).flatMap { Int($0) } }
-        guard !tabs.isEmpty || !fenetres.isEmpty else { throw MCPError("rien à fermer : onglets ou fenetres") }
+        guard !tabs.isEmpty || !fenetres.isEmpty else { throw MCPError("nothing to close: tabs or windows") }
         // Index décroissants dans chaque fenêtre : une fermeture ne décale pas les suivantes
         let ordre = tabs.indices.sorted { tabs[$0].0.fenetre != tabs[$1].0.fenetre ? tabs[$0].0.fenetre < tabs[$1].0.fenetre : tabs[$0].0.index > tabs[$1].0.index }
         let liste = "{" + ordre.map { "{\(tabs[$0].0.fenetre), \(tabs[$0].0.index), \(AS.lit(tabs[$0].1))}" }.joined(separator: ", ") + "}"
@@ -229,7 +229,7 @@ enum Handlers {
               set t to tab (item 2 of r) of window id (item 1 of r)
               set u to URL of t
               if u is missing value then set u to "about:blank"
-              if (item 3 of r) is not "" and u does not start with (item 3 of r) then error "URL différente : " & u
+              if (item 3 of r) is not "" and u does not start with (item 3 of r) then error "different URL: " & u
               close t
               set end of out to "ok"
             on error m
@@ -253,15 +253,15 @@ enum Handlers {
         var resultats = [JSON](repeating: [:], count: tabs.count)
         for (k, pos) in ordre.enumerated() {
             var o = tabs[pos].0.json
-            let m = k < rt.count ? rt[k].string ?? "" : "échec"
-            if m == "ok" { o["ok"] = true } else { o["ok"] = false; o["erreur"] = m }
+            let m = k < rt.count ? rt[k].string ?? "" : "failed"
+            if m == "ok" { o["ok"] = true } else { o["ok"] = false; o["error"] = m }
             resultats[pos] = o
         }
-        var out: JSON = ["fermes": resultats.filter { $0["ok"] as? Bool == true }.count]
-        if !resultats.isEmpty { out["onglets"] = resultats }
+        var out: JSON = ["closed": resultats.filter { $0["ok"] as? Bool == true }.count]
+        if !resultats.isEmpty { out["tabs"] = resultats }
         if !fenetres.isEmpty {
-            out["fenetres"] = zip(fenetres, rw).map { w, m -> JSON in
-                m.string == "ok" ? ["fenetre_id": w, "ok": true] : ["fenetre_id": w, "ok": false, "erreur": m.string ?? "échec"]
+            out["windows"] = zip(fenetres, rw).map { w, m -> JSON in
+                m.string == "ok" ? ["window_id": w, "ok": true] : ["window_id": w, "ok": false, "error": m.string ?? "failed"]
             }
         }
         return out
@@ -289,52 +289,52 @@ enum Handlers {
         return zip(refs, d.items).map { ref, item in
             let l = item.items
             if l.first?.bool == true, l.count > 1 { return (ref, .success(l[1])) }
-            return (ref, .failure(MCPError(l.count > 1 ? l[1].string ?? "échec" : "échec")))
+            return (ref, .failure(MCPError(l.count > 1 ? l[1].string ?? "failed" : "failed")))
         }
     }
 
     static func lirePage(_ a: JSON) throws -> Any {
         let cibles = try refs(a)
-        let format = a.nonEmpty("format") ?? "texte"
-        let maxc = max(100, a.int("max_caracteres") ?? 8000)
+        let format = a.nonEmpty("format") ?? "text"
+        let maxc = max(100, a.int("max_chars") ?? 8000)
         let js: String
         switch format {
-        case "texte": js = ""
+        case "text": js = ""
         case "html": js = AS.jsWrapper("document.documentElement.outerHTML")
-        case "liens": js = AS.jsWrapper("[...document.links].slice(0,500).map(a=>[(a.innerText||a.title||'').trim().replace(/\\s+/g,' ').slice(0,120),a.href])")
-        default: throw MCPError("format inconnu : \(format) (texte, liens, html)")
+        case "links": js = AS.jsWrapper("[...document.links].slice(0,500).map(a=>[(a.innerText||a.title||'').trim().replace(/\\s+/g,' ').slice(0,120),a.href])")
+        default: throw MCPError("unknown format: \(format) (text, links, html)")
         }
-        let corps = format == "texte"
+        let corps = format == "text"
             ? "set res to {name of t, URL of t, text of t}"
             : "set v to \"\"\nset v to (do JavaScript \(AS.lit(js)) in t)\nset res to {name of t, URL of t, \"\"}\ntry\nset item 3 of res to v\nend try"
         let pages: [JSON] = try parOnglet(cibles, corps).map { ref, r in
             var o = ref.json
             switch r {
-            case .failure(let e): o["erreur"] = e.description
+            case .failure(let e): o["error"] = e.description
             case .success(let d):
                 let l = d.items
-                o["titre"] = l.first?.string ?? ""
+                o["title"] = l.first?.string ?? ""
                 o["url"] = l.count > 1 ? l[1].string ?? "about:blank" : ""
                 var brut = l.count > 2 ? l[2].string ?? "" : ""
-                if format != "texte" {
-                    guard brut.hasPrefix("§") else { o["erreur"] = "JavaScript indisponible : activer Développement > Autoriser JavaScript depuis les Apple Events"; return o }
+                if format != "text" {
+                    guard brut.hasPrefix("§") else { o["error"] = "JavaScript unavailable: enable Develop > Allow JavaScript from Apple Events"; return o }
                     brut.removeFirst()
-                    if brut.hasPrefix("ERR") { o["erreur"] = "JavaScript : " + brut.dropFirst(3); return o }
+                    if brut.hasPrefix("ERR") { o["error"] = "JavaScript: " + brut.dropFirst(3); return o }
                 }
-                if format == "liens" {
+                if format == "links" {
                     let paires = (try? JSONSerialization.jsonObject(with: Data(brut.utf8))) as? [[String]] ?? []
                     var vus = Set<String>()
                     let liens: [JSON] = paires.compactMap { p in
                         guard p.count == 2, !p[1].isEmpty, !p[1].hasPrefix("javascript:"), vus.insert(p[1]).inserted else { return nil }
-                        return p[0].isEmpty ? ["url": p[1]] : ["texte": p[0], "url": p[1]]
+                        return p[0].isEmpty ? ["url": p[1]] : ["text": p[0], "url": p[1]]
                     }
                     let lim = max(1, maxc / 80)
-                    o["liens"] = Array(liens.prefix(lim))
-                    if liens.count > lim { o["total_liens"] = liens.count; o["tronque"] = true }
+                    o["links"] = Array(liens.prefix(lim))
+                    if liens.count > lim { o["total_links"] = liens.count; o["truncated"] = true }
                 } else {
                     let (txt, coupe) = tronquer(brut, maxc)
-                    o[format == "html" ? "html" : "texte"] = txt
-                    if coupe { o["tronque"] = true; o["longueur"] = brut.count }
+                    o[format == "html" ? "html" : "text"] = txt
+                    if coupe { o["truncated"] = true; o["length"] = brut.count }
                 }
             }
             return o
@@ -348,23 +348,23 @@ enum Handlers {
         let res: [JSON] = try parOnglet(cibles, "set v to (do JavaScript \(AS.lit(AS.jsWrapper(code))) in t)\nset res to \"\"\ntry\nset res to v\nend try").map { ref, r in
             var o = ref.json
             switch r {
-            case .failure(let e): o["ok"] = false; o["erreur"] = e.description
+            case .failure(let e): o["ok"] = false; o["error"] = e.description
             case .success(let d):
                 guard var s = d.string, s.hasPrefix("§") else {
                     o["ok"] = false
-                    o["erreur"] = "pas de résultat : erreur de syntaxe JavaScript, page sans document, ou réglage « Autoriser JavaScript depuis les Apple Events » désactivé"
+                    o["error"] = "no result: JavaScript syntax error, page without a document, or the \"Allow JavaScript from Apple Events\" setting is off"
                     return o
                 }
                 s.removeFirst()
-                if s.hasPrefix("ERR") { o["ok"] = false; o["erreur"] = "JavaScript : " + s.dropFirst(3); return o }
+                if s.hasPrefix("ERR") { o["ok"] = false; o["error"] = "JavaScript: " + s.dropFirst(3); return o }
                 o["ok"] = true
                 let (txt, coupe) = tronquer(s, 20000)
-                if !coupe, let f = txt.first, f == "{" || f == "[", let v = try? JSONSerialization.jsonObject(with: Data(txt.utf8)) { o["resultat"] = v }
-                else { o["resultat"] = txt; if coupe { o["tronque"] = true } }
+                if !coupe, let f = txt.first, f == "{" || f == "[", let v = try? JSONSerialization.jsonObject(with: Data(txt.utf8)) { o["result"] = v }
+                else { o["result"] = txt; if coupe { o["truncated"] = true } }
             }
             return o
         }
-        return ["resultats": res]
+        return ["results": res]
     }
 
     // MARK: - Liste de lecture et favoris (Bookmarks.plist, lecture seule)
@@ -376,34 +376,34 @@ enum Handlers {
     static func listeDeLecture(_ a: JSON) throws -> Any {
         let racine = try Fichiers.racineFavoris()
         let rl = (racine["Children"] as? [[String: Any]] ?? []).first { $0["Title"] as? String == "com.apple.ReadingList" }
-        let filtre = a.nonEmpty("texte").map(fold)
+        let filtre = a.nonEmpty("text").map(fold)
         var items: [(Date, JSON)] = []
         for n in rl?["Children"] as? [[String: Any]] ?? [] {
             let info = n["ReadingList"] as? [String: Any] ?? [:]
             let t = titre(n), url = n["URLString"] as? String ?? ""
             let apercu = info["PreviewText"] as? String ?? ""
             let lu = info["DateLastViewed"] != nil
-            if a.bool("non_lus") == true && lu { continue }
+            if a.bool("unread_only") == true && lu { continue }
             if let filtre, !fold(t + " " + url + " " + apercu).contains(filtre) { continue }
             let ajout = info["DateAdded"] as? Date ?? .distantPast
-            var o: JSON = ["titre": t, "url": url, "lu": lu]
-            if ajout != .distantPast { o["ajoute"] = Dates.format(ajout) }
-            if a.bool("apercu") == true, !apercu.isEmpty { o["apercu"] = String(apercu.prefix(300)) }
+            var o: JSON = ["title": t, "url": url, "read": lu]
+            if ajout != .distantPast { o["added"] = Dates.format(ajout) }
+            if a.bool("include_preview") == true, !apercu.isEmpty { o["preview"] = String(apercu.prefix(300)) }
             items.append((ajout, o))
         }
         items.sort { $0.0 > $1.0 }
-        let limite = max(1, a.int("limite") ?? 20)
-        var out: JSON = ["elements": items.prefix(limite).map(\.1)]
-        if items.count > limite { out["total"] = items.count; out["tronque"] = true }
+        let limite = max(1, a.int("limit") ?? 20)
+        var out: JSON = ["items": items.prefix(limite).map(\.1)]
+        if items.count > limite { out["total"] = items.count; out["truncated"] = true }
         return out
     }
 
     static func ajouterListeDeLecture(_ a: JSON) throws -> Any {
-        let elements = a.objects("elements") ?? []
-        guard !elements.isEmpty else { throw MCPError("paramètre manquant : elements") }
+        let elements = a.objects("items") ?? []
+        guard !elements.isEmpty else { throw MCPError("missing parameter: items") }
         let liste = try "{" + elements.map { e -> String in
-            guard let u = e.nonEmpty("url") else { throw MCPError("chaque élément demande une url") }
-            return "{\(AS.lit(normaliser(u))), \(AS.lit(e.nonEmpty("titre") ?? "")), \(AS.lit(e.nonEmpty("apercu") ?? ""))}"
+            guard let u = e.nonEmpty("url") else { throw MCPError("each item needs a url") }
+            return "{\(AS.lit(normaliser(u))), \(AS.lit(e.nonEmpty("title") ?? "")), \(AS.lit(e.nonEmpty("preview") ?? ""))}"
         }.joined(separator: ", ") + "}"
         let d = try AS.run("""
         tell application "Safari"
@@ -427,21 +427,21 @@ enum Handlers {
         """)
         let res: [JSON] = zip(elements, d.items).map { e, m in
             let u = normaliser(e.nonEmpty("url") ?? "")
-            return m.string == "ok" ? ["url": u, "ok": true] : ["url": u, "ok": false, "erreur": m.string ?? "échec"]
+            return m.string == "ok" ? ["url": u, "ok": true] : ["url": u, "ok": false, "error": m.string ?? "failed"]
         }
-        return ["ajoutes": res.filter { $0["ok"] as? Bool == true }.count, "resultats": res]
+        return ["added": res.filter { $0["ok"] as? Bool == true }.count, "results": res]
     }
 
     static func favoris(_ a: JSON) throws -> Any {
         let racine = try Fichiers.racineFavoris()
-        let filtre = a.nonEmpty("texte").map(fold)
-        let dossierFiltre = a.nonEmpty("dossier").map(fold)
-        let dossiersSeuls = a.bool("dossiers") == true
+        let filtre = a.nonEmpty("text").map(fold)
+        let dossierFiltre = a.nonEmpty("folder").map(fold)
+        let dossiersSeuls = a.bool("folders") == true
         var out: [JSON] = []
         func nom(_ n: [String: Any]) -> String {
             switch n["Title"] as? String {
-            case "BookmarksBar": return "Favoris"
-            case "BookmarksMenu": return "Menu des signets"
+            case "BookmarksBar": return "Favorites"
+            case "BookmarksMenu": return "Bookmarks Menu"
             default: return titre(n)
             }
         }
@@ -452,21 +452,21 @@ enum Handlers {
                 if type == "WebBookmarkTypeList" {
                     let p = chemin.isEmpty ? nom(c) : chemin + "/" + nom(c)
                     if dossiersSeuls && (dossierFiltre == nil || fold(p).contains(dossierFiltre!)) && (filtre == nil || fold(p).contains(filtre!)) {
-                        out.append(["dossier": p, "nb": (c["Children"] as? [Any])?.count ?? 0, "uuid": c["WebBookmarkUUID"] as? String ?? ""])
+                        out.append(["folder": p, "count": (c["Children"] as? [Any])?.count ?? 0, "uuid": c["WebBookmarkUUID"] as? String ?? ""])
                     }
                     parcourir(c, p)
                 } else if !dossiersSeuls, type == "WebBookmarkTypeLeaf" {
                     let t = titre(c), u = c["URLString"] as? String ?? ""
                     if let dossierFiltre, !fold(chemin).contains(dossierFiltre) { continue }
                     if let filtre, !fold(t + " " + u).contains(filtre) { continue }
-                    out.append(["titre": t, "url": u, "dossier": chemin, "uuid": c["WebBookmarkUUID"] as? String ?? ""])
+                    out.append(["title": t, "url": u, "folder": chemin, "uuid": c["WebBookmarkUUID"] as? String ?? ""])
                 }
             }
         }
         parcourir(racine, "")
-        let limite = max(1, a.int("limite") ?? 50)
-        var res: JSON = [dossiersSeuls ? "dossiers" : "favoris": Array(out.prefix(limite))]
-        if out.count > limite { res["total"] = out.count; res["tronque"] = true }
+        let limite = max(1, a.int("limit") ?? 50)
+        var res: JSON = [dossiersSeuls ? "folders" : "bookmarks": Array(out.prefix(limite))]
+        if out.count > limite { res["total"] = out.count; res["truncated"] = true }
         return res
     }
 
@@ -479,19 +479,19 @@ enum Handlers {
     static func historique(_ a: JSON) throws -> Any {
         let db = try Fichiers.DB(Fichiers.history)
         var where_: [String] = [], params: [Any] = []
-        if let d = a.nonEmpty("depuis") { where_.append("v.visit_time >= ?"); params.append(try Dates.parse(d).timeIntervalSinceReferenceDate) }
-        if let d = a.nonEmpty("jusqu_a") { where_.append("v.visit_time < ?"); params.append(try Dates.parse(d).timeIntervalSinceReferenceDate) }
-        if let dom = a.nonEmpty("domaine")?.lowercased() {
+        if let d = a.nonEmpty("since") { where_.append("v.visit_time >= ?"); params.append(try Dates.parse(d).timeIntervalSinceReferenceDate) }
+        if let d = a.nonEmpty("until") { where_.append("v.visit_time < ?"); params.append(try Dates.parse(d).timeIntervalSinceReferenceDate) }
+        if let dom = a.nonEmpty("domain")?.lowercased() {
             let d = dom.replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             where_.append("(i.url LIKE ? ESCAPE '\\' OR i.url LIKE ? ESCAPE '\\')")
             params.append("%://" + d + "/%"); params.append("%." + d + "/%")
         }
         var having = ""
-        if let t = a.nonEmpty("texte") {
+        if let t = a.nonEmpty("text") {
             having = "HAVING (i.url LIKE ? ESCAPE '\\' OR titre LIKE ? ESCAPE '\\')"
             params.append(like(t)); params.append(like(t))
         }
-        let limite = max(1, a.int("limite") ?? 20)
+        let limite = max(1, a.int("limit") ?? 20)
         params.append(limite + 1)
         let sql = """
         SELECT i.url, i.visit_count, MAX(v.visit_time) AS t,
@@ -503,12 +503,12 @@ enum Handlers {
         """
         let rows = try db.rows(sql, params)
         let pages: [JSON] = rows.prefix(limite).map { r in
-            var o: JSON = ["url": r[0] as? String ?? "", "titre": r[3] as? String ?? "", "visites": r[1] as? Int ?? 0]
-            if let t = r[2] as? Double { o["derniere_visite"] = Dates.format(Date(timeIntervalSinceReferenceDate: t)) }
+            var o: JSON = ["url": r[0] as? String ?? "", "title": r[3] as? String ?? "", "visits": r[1] as? Int ?? 0]
+            if let t = r[2] as? Double { o["last_visit"] = Dates.format(Date(timeIntervalSinceReferenceDate: t)) }
             return o
         }
         var out: JSON = ["pages": pages]
-        if rows.count > limite { out["tronque"] = true }
+        if rows.count > limite { out["truncated"] = true }
         return out
     }
 
@@ -517,15 +517,15 @@ enum Handlers {
     static func groupesOnglets(_ a: JSON) throws -> Any {
         let db = try Fichiers.DB(Fichiers.tabs)
         // Onglets d'un groupe : enfants directs et onglets épinglés (sous-dossier subtype 1)
-        if let g = a.int("groupe_id") {
+        if let g = a.int("group_id") {
             let rows = try db.rows("""
             SELECT t.title, t.url, CASE WHEN t.parent = ?1 THEN 0 ELSE 1 END AS epingle FROM bookmarks t
             WHERE t.type = 0 AND t.deleted = 0 AND (t.parent = ?1 OR t.parent IN (SELECT id FROM bookmarks WHERE parent = ?1 AND type = 1 AND subtype = 1))
             ORDER BY epingle DESC, t.order_index
             """, [g])
-            return ["groupe_id": g, "onglets": rows.map { r -> JSON in
-                var o: JSON = ["titre": r[0] as? String ?? "", "url": r[1] as? String ?? ""]
-                if r[2] as? Int == 1 { o["epingle"] = true }
+            return ["group_id": g, "tabs": rows.map { r -> JSON in
+                var o: JSON = ["title": r[0] as? String ?? "", "url": r[1] as? String ?? ""]
+                if r[2] as? Int == 1 { o["pinned"] = true }
                 return o
             }]
         }
@@ -539,17 +539,17 @@ enum Handlers {
           AND g.id NOT IN (SELECT private_tab_group_id FROM windows WHERE private_tab_group_id IS NOT NULL)
         ORDER BY g.order_index, g.id
         """)
-        let filtre = a.nonEmpty("texte").map(fold)
+        let filtre = a.nonEmpty("text").map(fold)
         let groupes: [JSON] = rows.compactMap { r in
             let local = r[3] as? Int == 1
-            if local && a.bool("sans_nom") != true { return nil }
+            if local && a.bool("include_unnamed") != true { return nil }
             let nom = r[1] as? String ?? ""
             if let filtre, !fold(nom).contains(filtre) { return nil }
-            var o: JSON = ["groupe_id": r[0] as? Int ?? 0, "nom": local ? "" : nom, "nb_onglets": r[2] as? Int ?? 0]
-            if local { o["sans_nom"] = true }
-            if r[4] as? Int == 1 { o["ouvert"] = true }
+            var o: JSON = ["group_id": r[0] as? Int ?? 0, "name": local ? "" : nom, "tab_count": r[2] as? Int ?? 0]
+            if local { o["unnamed"] = true }
+            if r[4] as? Int == 1 { o["open"] = true }
             return o
         }
-        return ["groupes": groupes]
+        return ["groups": groupes]
     }
 }

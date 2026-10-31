@@ -10,14 +10,14 @@ private func n(_ d: String) -> JSON { ["type": "number", "description": d] }
 private func e(_ values: [String], _ d: String) -> JSON { ["type": "string", "enum": values, "description": d] }
 private func arr(_ items: JSON, _ d: String) -> JSON { ["type": "array", "items": items, "description": d] }
 
-private let dateHelp = "AAAA-MM-JJ ou AAAA-MM-JJTHH:MM (heure locale)"
-private let texteHelp = "Contenu en texte simple : # titre, ## sous-titre, - puce, 1. liste numérotée, **gras**, *italique*"
+private let dateHelp = "YYYY-MM-DD or YYYY-MM-DDTHH:MM (local time)"
+private let texteHelp = "Plain-text content: # heading, ## subheading, - bullet, 1. numbered list, **bold**, *italic*"
 
 /// Annotations MCP : seules les lectures sont readOnly, seules les suppressions sont destructive, rien ne sort du Mac
-private let lectures: Set<String> = ["dossiers", "notes", "lire_notes", "tags", "ouvrir_note"]
+private let lectures: Set<String> = ["list_folders", "list_notes", "read_notes", "list_tags", "open_note"]
 private func annotations(_ nom: String) -> JSON {
     // Pas d'idempotentHint : supprimer deux fois une note la purge de la corbeille
-    ["readOnlyHint": lectures.contains(nom), "destructiveHint": nom.hasPrefix("supprimer_"), "openWorldHint": false]
+    ["readOnlyHint": lectures.contains(nom), "destructiveHint": nom.hasPrefix("delete_"), "openWorldHint": false]
 }
 
 enum Tools {
@@ -28,94 +28,94 @@ enum Tools {
     }
 
     private static let outils: [JSON] = [
-        ["name": "dossiers",
-         "description": "Liste les comptes et tous leurs dossiers (imbriqués : parent_id) avec identifiant et nombre de notes. À appeler pour connaître les dossier_id. La corbeille est marquée corbeille: true.",
-         "inputSchema": obj(["nom_contient": s("Ne garder que les dossiers dont le nom contient ce texte")])],
-        ["name": "notes",
-         "description": "Liste ou cherche des notes (titre, dossier, date de modification ; épinglage, checklist et tags si la base est lisible), triées de la plus récente à la plus ancienne. Filtres : dossier (sous-dossiers compris), texte (titre et contenu), dates, tag, épinglées. Hors « Supprimées récemment » sauf supprimees: true ou dossier_id. 20 résultats par défaut.",
+        ["name": "list_folders",
+         "description": "Lists accounts and all their folders (nested: parent_id) with id and note count. Call it to find folder_id values. The trash folder is marked trash: true.",
+         "inputSchema": obj(["name_contains": s("Only keep folders whose name contains this text")])],
+        ["name": "list_notes",
+         "description": "Lists or searches notes (title, folder, modification date; pinned, checklist and tags when the database is readable), newest first. Filters: folder (subfolders included), text (title and content), dates, tag, pinned. Excludes “Recently Deleted” unless include_deleted: true or folder_id is given. 20 results by default.",
          "inputSchema": obj([
-            "dossier_id": s("Limiter à ce dossier"),
-            "sous_dossiers": b("Inclure les sous-dossiers du dossier_id (true par défaut)"),
-            "texte": s("Recherche dans le titre et le contenu"),
-            "modifiees_depuis": s("Modifiées à partir de : \(dateHelp)"),
-            "modifiees_avant": s("Modifiées avant : \(dateHelp)"),
-            "tag": s("Ne garder que les notes avec ce tag (sans #)"),
-            "epinglees": b("Ne garder que les notes épinglées"),
-            "supprimees": b("Inclure « Supprimées récemment »"),
-            "limite": n("Nombre maximum de résultats (20 par défaut)"),
+            "folder_id": s("Limit to this folder"),
+            "include_subfolders": b("Include the subfolders of folder_id (true by default)"),
+            "text": s("Search in title and content"),
+            "modified_since": s("Modified on or after: \(dateHelp)"),
+            "modified_before": s("Modified before: \(dateHelp)"),
+            "tag": s("Only keep notes with this tag (without #)"),
+            "pinned": b("Only keep pinned notes"),
+            "include_deleted": b("Include “Recently Deleted”"),
+            "limit": n("Maximum number of results (20 by default)"),
          ])],
-        ["name": "lire_notes",
-         "description": "Lit le contenu complet de notes par identifiant : texte (par défaut) ou HTML, dates, pièces jointes (id, nom), verrou, tags.",
-         "inputSchema": obj(["ids": arr(s("Identifiant de note"), "Notes à lire"),
-                             "format": e(["texte", "html"], "texte par défaut ; html garde la mise en forme (images remplacées par un repère)"),
-                             "max_caracteres": n("Tronquer le contenu au-delà (20000 par défaut)")], ["ids"])],
-        ["name": "creer_notes",
-         "description": "Crée une ou plusieurs notes en un appel (par ex. depuis un compte-rendu). Le titre devient la première ligne. Renvoie le succès ou l'échec note par note, avec les identifiants. Notes ne crée ni case à cocher, ni tag, ni lien cliquable.",
+        ["name": "read_notes",
+         "description": "Reads the full content of notes by id: plain text (default) or HTML, dates, attachments (id, name), lock state, tags.",
+         "inputSchema": obj(["ids": arr(s("Note id"), "Notes to read"),
+                             "format": e(["text", "html"], "text by default; html keeps formatting (images replaced by a placeholder)"),
+                             "max_chars": n("Truncate content beyond this length (20000 by default)")], ["ids"])],
+        ["name": "create_notes",
+         "description": "Creates one or more notes in one call (e.g. from meeting minutes). The title becomes the first line. Returns success or failure per note, with ids. Notes cannot create checkboxes, tags or clickable links this way.",
          "inputSchema": obj(["notes": arr(obj([
-            "titre": s("Titre (première ligne)"),
-            "texte": s(texteHelp),
-            "html": s("Contenu en HTML (à la place de texte) : div, h1-h3, b, i, u, ul/ol/li, table"),
-            "dossier_id": s("Dossier (dossier par défaut si absent)"),
-         ], ["titre"]), "Notes à créer")], ["notes"])],
-        ["name": "modifier_notes",
-         "description": "Modifie une ou plusieurs notes par identifiant : titre, contenu (remplacé), ajout en fin, déplacement de dossier. Déplacer une note de « Supprimées récemment » vers un dossier la restaure. Seuls les champs fournis changent.",
-         "inputSchema": obj(["modifications": arr(obj([
-            "id": s("Identifiant de la note"),
-            "titre": s("Nouveau titre"),
-            "texte": s("Remplace le contenu sous le titre. " + texteHelp),
-            "html": s("Remplace le contenu sous le titre, en HTML"),
-            "ajouter_texte": s("Ajoute à la fin de la note. " + texteHelp),
-            "ajouter_html": s("Ajoute à la fin de la note, en HTML"),
-            "dossier_id": s("Déplacer dans ce dossier (ou restaurer)"),
-         ], ["id"]), "Une entrée par note")], ["modifications"])],
-        ["name": "supprimer_notes",
-         "description": "Supprime des notes par identifiant : elles vont dans « Supprimées récemment » (restaurables avec modifier_notes dossier_id). definitif: true les purge aussi de la corbeille.",
-         "inputSchema": obj(["ids": arr(s("Identifiant de note"), "Notes à supprimer"),
-                             "definitif": b("Purger aussi de « Supprimées récemment » (sans retour)")], ["ids"])],
-        ["name": "creer_dossier",
-         "description": "Crée un dossier (à la racine du compte ou dans un dossier parent), avec ses sous-dossiers éventuels. Renvoie les identifiants.",
-         "inputSchema": obj(["nom": s("Nom"), "parent_id": s("Créer dans ce dossier"),
-                             "compte_id": s("Compte (compte par défaut si absent ; ignoré avec parent_id)"),
-                             "sous_dossiers": arr(s("Nom"), "Sous-dossiers à créer dedans")], ["nom"])],
-        ["name": "renommer_dossier",
-         "description": "Renomme un dossier. (Notes ne permet pas de déplacer un dossier par script.)",
-         "inputSchema": obj(["id": s("Identifiant du dossier"), "nom": s("Nouveau nom")], ["id", "nom"])],
-        ["name": "supprimer_dossier",
-         "description": "Supprime un dossier et ses sous-dossiers, par identifiant. Leurs notes vont dans « Supprimées récemment ».",
-         "inputSchema": obj(["id": s("Identifiant du dossier")], ["id"])],
-        ["name": "ajouter_pieces_jointes",
-         "description": "Ajoute des fichiers locaux (image, PDF, tout fichier) en pièces jointes de notes, en un appel.",
-         "inputSchema": obj(["pieces": arr(obj(["note_id": s("Identifiant de la note"), "chemin": s("Chemin absolu du fichier")], ["note_id", "chemin"]),
-                                           "Pièces à ajouter")], ["pieces"])],
-        ["name": "exporter_pieces_jointes",
-         "description": "Enregistre des pièces jointes dans un dossier local (par identifiant, ou toutes celles de notes). N'écrase jamais un fichier existant.",
-         "inputSchema": obj(["dossier": s("Chemin absolu du dossier de destination (créé si besoin)"),
-                             "ids": arr(s("Identifiant de pièce jointe"), "Pièces jointes"),
-                             "note_ids": arr(s("Identifiant de note"), "Exporter toutes les pièces jointes de ces notes")], ["dossier"])],
-        ["name": "tags",
-         "description": "Liste les tags (#) avec leur nombre de notes, éventuellement dans un dossier. Lu dans la base de Notes (Accès complet au disque requis).",
-         "inputSchema": obj(["dossier_id": s("Limiter à ce dossier et ses sous-dossiers")])],
-        ["name": "ouvrir_note",
-         "description": "Affiche une note dans l'app Notes, au premier plan.",
-         "inputSchema": obj(["id": s("Identifiant de la note")], ["id"])],
+            "title": s("Title (first line)"),
+            "text": s(texteHelp),
+            "html": s("HTML content (instead of text): div, h1-h3, b, i, u, ul/ol/li, table"),
+            "folder_id": s("Folder (default folder if omitted)"),
+         ], ["title"]), "Notes to create")], ["notes"])],
+        ["name": "update_notes",
+         "description": "Updates one or more notes by id: title, content (replaced), append at the end, move to a folder. Moving a note from “Recently Deleted” to a folder restores it. Only the fields provided change.",
+         "inputSchema": obj(["updates": arr(obj([
+            "id": s("Note id"),
+            "title": s("New title"),
+            "text": s("Replaces the content below the title. " + texteHelp),
+            "html": s("Replaces the content below the title, as HTML"),
+            "append_text": s("Appends to the end of the note. " + texteHelp),
+            "append_html": s("Appends to the end of the note, as HTML"),
+            "folder_id": s("Move to this folder (or restore)"),
+         ], ["id"]), "One entry per note")], ["updates"])],
+        ["name": "delete_notes",
+         "description": "Deletes notes by id: they go to “Recently Deleted” (restorable with update_notes folder_id). permanent: true also purges them from the trash.",
+         "inputSchema": obj(["ids": arr(s("Note id"), "Notes to delete"),
+                             "permanent": b("Also purge from “Recently Deleted” (cannot be undone)")], ["ids"])],
+        ["name": "create_folder",
+         "description": "Creates a folder (at the account root or inside a parent folder), with optional subfolders. Returns the ids.",
+         "inputSchema": obj(["name": s("Name"), "parent_id": s("Create inside this folder"),
+                             "account_id": s("Account (default account if omitted; ignored with parent_id)"),
+                             "subfolders": arr(s("Name"), "Subfolders to create inside it")], ["name"])],
+        ["name": "rename_folder",
+         "description": "Renames a folder. (Notes does not allow moving a folder by script.)",
+         "inputSchema": obj(["id": s("Folder id"), "name": s("New name")], ["id", "name"])],
+        ["name": "delete_folder",
+         "description": "Deletes a folder and its subfolders, by id. Their notes go to “Recently Deleted”.",
+         "inputSchema": obj(["id": s("Folder id")], ["id"])],
+        ["name": "add_attachments",
+         "description": "Adds local files (image, PDF, any file) as attachments to notes, in one call.",
+         "inputSchema": obj(["attachments": arr(obj(["note_id": s("Note id"), "path": s("Absolute file path")], ["note_id", "path"]),
+                                           "Attachments to add")], ["attachments"])],
+        ["name": "export_attachments",
+         "description": "Saves attachments to a local folder (by id, or all attachments of given notes). Never overwrites an existing file.",
+         "inputSchema": obj(["destination": s("Absolute path of the destination folder (created if needed)"),
+                             "ids": arr(s("Attachment id"), "Attachments"),
+                             "note_ids": arr(s("Note id"), "Export all attachments of these notes")], ["destination"])],
+        ["name": "list_tags",
+         "description": "Lists tags (#) with their note count, optionally within a folder. Read from the Notes database (Full Disk Access required).",
+         "inputSchema": obj(["folder_id": s("Limit to this folder and its subfolders")])],
+        ["name": "open_note",
+         "description": "Shows a note in the Notes app, in the foreground.",
+         "inputSchema": obj(["id": s("Note id")], ["id"])],
     ]
 
     static func call(_ name: String, _ a: JSON) throws -> Any {
         switch name {
-        case "dossiers": return try Handlers.dossiers(a)
-        case "notes": return try Handlers.notes(a)
-        case "lire_notes": return try Handlers.lireNotes(a)
-        case "creer_notes": return try Handlers.creerNotes(a)
-        case "modifier_notes": return try Handlers.modifierNotes(a)
-        case "supprimer_notes": return try Handlers.supprimerNotes(a)
-        case "creer_dossier": return try Handlers.creerDossier(a)
-        case "renommer_dossier": return try Handlers.renommerDossier(a)
-        case "supprimer_dossier": return try Handlers.supprimerDossier(a)
-        case "ajouter_pieces_jointes": return try Handlers.ajouterPiecesJointes(a)
-        case "exporter_pieces_jointes": return try Handlers.exporterPiecesJointes(a)
-        case "tags": return try Handlers.tags(a)
-        case "ouvrir_note": return try Handlers.ouvrirNote(a)
-        default: throw MCPError("outil inconnu : \(name)")
+        case "list_folders": return try Handlers.dossiers(a)
+        case "list_notes": return try Handlers.notes(a)
+        case "read_notes": return try Handlers.lireNotes(a)
+        case "create_notes": return try Handlers.creerNotes(a)
+        case "update_notes": return try Handlers.modifierNotes(a)
+        case "delete_notes": return try Handlers.supprimerNotes(a)
+        case "create_folder": return try Handlers.creerDossier(a)
+        case "rename_folder": return try Handlers.renommerDossier(a)
+        case "delete_folder": return try Handlers.supprimerDossier(a)
+        case "add_attachments": return try Handlers.ajouterPiecesJointes(a)
+        case "export_attachments": return try Handlers.exporterPiecesJointes(a)
+        case "list_tags": return try Handlers.tags(a)
+        case "open_note": return try Handlers.ouvrirNote(a)
+        default: throw MCPError("unknown tool: \(name)")
         }
     }
 }

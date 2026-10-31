@@ -14,7 +14,7 @@ enum Stdio {
     /// stdout est réservé au protocole : une ligne JSON par message, rien d'autre
     static func send(_ obj: Any) {
         guard var data = try? JSONSerialization.data(withJSONObject: obj, options: [.withoutEscapingSlashes]) else {
-            log("réponse non sérialisable")
+            log("response not serializable")
             return
         }
         data.append(0x0A)
@@ -36,13 +36,13 @@ func jsonText(_ value: Any) -> String {
 }
 
 enum Server {
-    static let name = "calendrier"
+    static let name = "calendar"
     static let version = "1.0.0"
     static let instructions = """
-    Pilote l'app Calendrier du Mac : calendriers, événements (lieu, alertes, récurrences, trajet, pièces jointes), créneaux libres, invitations. \
-    Dates en heure locale : AAAA-MM-JJ (journée entière) ou AAAA-MM-JJTHH:MM. \
-    Une occurrence d'événement récurrent se désigne par id + occurrence (renvoyés par evenements) ; portee = cette_occurrence, suivantes ou serie. \
-    Les écritures prennent des listes. Les suppressions se font par identifiant et sont définitives. inviter et repondre_invitations envoient des messages aux participants.
+    Controls the Mac Calendar app: calendars, events (location, alarms, recurrence, travel time, attachments), free slots, invitations. \
+    Dates in local time: YYYY-MM-DD (all day) or YYYY-MM-DDTHH:MM. \
+    An occurrence of a recurring event is identified by id + occurrence (returned by list_events); scope = this_occurrence, following or series. \
+    Writes take lists. Deletions are by identifier and are permanent. invite and respond_to_invitations send messages to attendees.
     """
 
     static func handle(_ msg: JSON) -> JSON? {
@@ -70,10 +70,10 @@ enum Server {
                 let value = try Tools.call(tool, args)
                 return result(id, ["content": [["type": "text", "text": jsonText(value)]]])
             } catch {
-                return result(id, ["content": [["type": "text", "text": "Erreur : \(error)"]], "isError": true])
+                return result(id, ["content": [["type": "text", "text": "Error: \(error)"]], "isError": true])
             }
         default:
-            return ["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "Méthode inconnue : \(method)"]]
+            return ["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "Method not found: \(method)"]]
         }
     }
 
@@ -91,12 +91,12 @@ extension Dictionary where Key == String, Value == Any {
         return s
     }
     func req(_ k: String) throws -> String {
-        guard let s = nonEmpty(k) else { throw MCPError("paramètre manquant : \(k)") }
+        guard let s = nonEmpty(k) else { throw MCPError("missing parameter: \(k)") }
         return s
     }
     func bool(_ k: String) -> Bool? {
         if let b = self[k] as? Bool { return b }
-        if let s = self[k] as? String { return ["true", "oui", "1"].contains(s.lowercased()) }
+        if let s = self[k] as? String { return ["true", "yes", "1"].contains(s.lowercased()) }
         return nil
     }
     func int(_ k: String) -> Int? { (self[k] as? NSNumber)?.intValue ?? (self[k] as? String).flatMap { Int($0) } }

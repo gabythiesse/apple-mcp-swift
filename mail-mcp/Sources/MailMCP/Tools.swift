@@ -10,30 +10,30 @@ private func n(_ d: String) -> JSON { ["type": "number", "description": d] }
 private func e(_ values: [String], _ d: String) -> JSON { ["type": "string", "enum": values, "description": d] }
 private func arr(_ items: JSON, _ d: String) -> JSON { ["type": "array", "items": items, "description": d] }
 
-private let dateHelp = "AAAA-MM-JJ ou AAAA-MM-JJTHH:MM (heure locale)"
-private let ids = arr(n("Identifiant de message"), "Identifiants de messages")
-private let couleurs = ["rouge", "orange", "jaune", "vert", "bleu", "violet", "gris"]
+private let dateHelp = "YYYY-MM-DD or YYYY-MM-DDTHH:MM (local time)"
+private let ids = arr(n("Message id"), "Message ids")
+private let couleurs = ["red", "orange", "yellow", "green", "blue", "purple", "gray"]
 
 /// Message à composer (brouillon ou envoi direct)
 private let composition = obj([
-    "a": arr(s("Adresse, ou « Nom <adresse> »"), "Destinataires"),
-    "cc": arr(s("Adresse"), "Copie"),
-    "cci": arr(s("Adresse"), "Copie cachée"),
-    "sujet": s("Sujet (pour une réponse ou un transfert : laisser vide pour garder Re:/Fwd:)"),
-    "corps": s("Texte du message (pour une réponse ou un transfert, placé au-dessus du message cité)"),
-    "expediteur": s("Adresse d'envoi parmi celles des comptes (compte par défaut sinon)"),
-    "signature": s("Nom d'une signature de Mail (voir boites)"),
-    "pieces_jointes": arr(s("Chemin absolu"), "Fichiers à joindre"),
-    "repondre_a": n("Répondre à ce message : destinataire, sujet Re: et citation remplis (nouveau message, pas rattaché au fil chez le destinataire)"),
-    "tous": b("Avec repondre_a : répondre à tous"),
-    "transferer": n("Transférer ce message : sujet Fwd:, message cité et pièces jointes repris"),
+    "to": arr(s("Address, or \"Name <address>\""), "Recipients"),
+    "cc": arr(s("Address"), "Cc"),
+    "bcc": arr(s("Address"), "Bcc"),
+    "subject": s("Subject (for a reply or forward: leave empty to keep Re:/Fwd:)"),
+    "body": s("Message text (for a reply or forward, placed above the quoted message)"),
+    "from": s("Sending address, one of the accounts' addresses (default account otherwise)"),
+    "signature": s("Name of a Mail signature (see list_mailboxes)"),
+    "attachments": arr(s("Absolute path"), "Files to attach"),
+    "reply_to_id": n("Reply to this message: recipient, Re: subject and quote are filled in (new message, not threaded on the recipient's side)"),
+    "reply_all": b("With reply_to_id: reply to all"),
+    "forward_id": n("Forward this message: Fwd: subject, quoted message and attachments carried over"),
 ])
 
 /// Annotations MCP : lectures pures readOnly, suppression destructive, envoi openWorld
-private let lectures: Set<String> = ["boites", "messages", "lire_messages"]
+private let lectures: Set<String> = ["list_mailboxes", "list_messages", "read_messages"]
 private func annotations(_ nom: String) -> JSON {
-    var a: JSON = ["readOnlyHint": lectures.contains(nom), "destructiveHint": nom.hasPrefix("supprimer_"), "openWorldHint": nom == "envoyer"]
-    if nom.hasPrefix("supprimer_") { a["idempotentHint"] = true }
+    var a: JSON = ["readOnlyHint": lectures.contains(nom), "destructiveHint": nom.hasPrefix("delete_"), "openWorldHint": nom == "send"]
+    if nom.hasPrefix("delete_") { a["idempotentHint"] = true }
     return a
 }
 
@@ -45,90 +45,90 @@ enum Tools {
     }
 
     private static let outils: [JSON] = [
-        ["name": "boites",
-         "description": "Liste les comptes (id, nom, adresses), les boîtes aux lettres (id, non lus, total) et les noms de signatures. À appeler pour connaître les identifiants de boîte.",
-         "inputSchema": obj(["nom_contient": s("Ne garder que les boîtes dont le chemin contient ce texte")])],
-        ["name": "messages",
-         "description": "Cherche et liste des messages via l'index de Mail (rapide) : vues toutes faites, boîtes, compte, non lus, drapeau, dates, expéditeur, destinataire, texte (sujet, expéditeur, début du corps), pièces jointes, conversation. dans_corps cherche dans tout le corps (plus lent, une seule boîte). 20 résultats par défaut, du plus récent au plus ancien.",
+        ["name": "list_mailboxes",
+         "description": "Lists accounts (id, name, addresses), mailboxes (id, unread, total) and signature names. Call it to get mailbox ids.",
+         "inputSchema": obj(["name_contains": s("Only keep mailboxes whose path contains this text")])],
+        ["name": "list_messages",
+         "description": "Searches and lists messages through Mail's index (fast): ready-made views, mailboxes, account, unread, flagged, dates, sender, recipient, text (subject, sender, start of body), attachments, conversation. body_contains searches the whole body (slower, one mailbox only). 20 results by default, newest first.",
          "inputSchema": obj([
-            "vue": e(["aujourdhui", "non_lus", "drapeau", "recents", "sans_reponse", "selection"],
-                     "aujourdhui = reçus aujourd'hui ; non_lus ; drapeau ; recents ; sans_reponse = envoyés depuis 30 j sans réponse dans le fil ; selection = messages sélectionnés dans Mail. Les vues hors drapeau/selection ignorent envoyés, brouillons, corbeille et indésirables."),
-            "boites": arr(s("Identifiant de boîte"), "Limiter à ces boîtes"),
-            "compte": s("Limiter à ce compte (id, ou local)"),
-            "non_lu": b("true = non lus seulement, false = lus seulement"),
-            "drapeau": b("true = avec drapeau, false = sans"),
-            "depuis": s("Reçu à partir de : \(dateHelp)"),
-            "avant": s("Reçu strictement avant : \(dateHelp)"),
-            "de": s("Expéditeur (adresse ou nom, partiel)"),
-            "a": s("Destinataire to/cc (adresse ou nom, partiel)"),
-            "texte": s("Texte dans le sujet, l'expéditeur ou le début du corps"),
-            "dans_corps": s("Texte à chercher dans tout le corps (exige une seule boîte dans boites)"),
-            "avec_pj": b("Seulement les messages avec pièces jointes"),
-            "conversation": n("Seulement ce fil (champ conv)"),
+            "view": e(["today", "unread", "flagged", "recent", "no_reply", "selection"],
+                     "today = received today; unread; flagged; recent; no_reply = sent in the last 30 days with no reply in the thread; selection = messages selected in Mail. Views other than flagged/selection skip Sent, Drafts, Trash and Junk."),
+            "mailbox_ids": arr(s("Mailbox id"), "Limit to these mailboxes"),
+            "account_id": s("Limit to this account (id, or local)"),
+            "unread": b("true = unread only, false = read only"),
+            "flagged": b("true = flagged, false = not flagged"),
+            "since": s("Received on or after: \(dateHelp)"),
+            "before": s("Received strictly before: \(dateHelp)"),
+            "from": s("Sender (address or name, partial)"),
+            "to": s("To/cc recipient (address or name, partial)"),
+            "text": s("Text in the subject, the sender or the start of the body"),
+            "body_contains": s("Text to search for in the whole body (requires exactly one mailbox in mailbox_ids)"),
+            "has_attachments": b("Only messages with attachments"),
+            "conversation": n("Only this thread (conv field)"),
             "ids": ids,
-            "apercu": b("Ajouter le début du corps (160 caractères)"),
-            "limite": n("Nombre maximum (20 par défaut)"),
+            "preview": b("Add the start of the body (160 characters)"),
+            "limit": n("Maximum number (20 by default)"),
          ])],
-        ["name": "lire_messages",
-         "description": "Lit le contenu complet d'un ou plusieurs messages : expéditeur, destinataires, date, corps en texte, pièces jointes. En-têtes et source brute sur demande.",
-         "inputSchema": obj(["ids": ids, "entetes": b("Ajouter tous les en-têtes"), "source": b("Ajouter la source brute (RFC 822)"),
-                             "max_car": n("Longueur maximale du corps (5000 par défaut)")], ["ids"])],
-        ["name": "enregistrer_pieces_jointes",
-         "description": "Enregistre sur le disque les pièces jointes d'un ou plusieurs messages. Renvoie les chemins des fichiers.",
-         "inputSchema": obj(["ids": ids, "dossier": s("Dossier de destination (Téléchargements par défaut)"),
-                             "noms": arr(s("Nom de fichier"), "N'enregistrer que ces pièces jointes")], ["ids"])],
-        ["name": "marquer_messages",
-         "description": "Change l'état de messages en lot : lu, drapeau et sa couleur, couleur de fond, indésirable. Seuls les champs fournis changent.",
-         "inputSchema": obj(["modifications": arr(obj([
-            "id": n("Identifiant du message"),
-            "lu": b("Lu (true) ou non lu (false)"),
-            "drapeau": b("Poser (true) ou retirer (false) le drapeau"),
-            "couleur_drapeau": e(couleurs, "Couleur du drapeau (pose le drapeau)"),
-            "couleur_fond": e(couleurs + ["aucune"], "Couleur de fond dans la liste"),
-            "indesirable": b("Marquer comme indésirable ou non"),
-         ], ["id"]), "Une entrée par message")], ["modifications"])],
-        ["name": "deplacer_messages",
-         "description": "Déplace (ou copie) des messages vers une boîte, par exemple pour archiver. Renvoie le nouvel identifiant de chaque message (l'ancien ne sert plus).",
-         "inputSchema": obj(["ids": ids, "boite": s("Identifiant de la boîte de destination"), "copier": b("Copier au lieu de déplacer")], ["ids", "boite"])],
-        ["name": "supprimer_messages",
-         "description": "Supprime des messages ou des brouillons par identifiant : ils vont à la corbeille de leur compte. Un brouillon créé depuis le dernier lancement de Mail garde une copie dans Brouillons jusqu'au prochain relancement de Mail.",
+        ["name": "read_messages",
+         "description": "Reads the full content of one or more messages: sender, recipients, date, body as text, attachments. Headers and raw source on request.",
+         "inputSchema": obj(["ids": ids, "headers": b("Add all headers"), "source": b("Add the raw source (RFC 822)"),
+                             "max_chars": n("Maximum body length (5000 by default)")], ["ids"])],
+        ["name": "save_attachments",
+         "description": "Saves the attachments of one or more messages to disk. Returns the file paths.",
+         "inputSchema": obj(["ids": ids, "folder": s("Destination folder (Downloads by default)"),
+                             "names": arr(s("File name"), "Only save these attachments")], ["ids"])],
+        ["name": "mark_messages",
+         "description": "Changes message state in batch: read, flag and its color, background color, junk. Only the fields provided change.",
+         "inputSchema": obj(["changes": arr(obj([
+            "id": n("Message id"),
+            "read": b("Read (true) or unread (false)"),
+            "flagged": b("Set (true) or clear (false) the flag"),
+            "flag_color": e(couleurs, "Flag color (sets the flag)"),
+            "background_color": e(couleurs + ["none"], "Background color in the message list"),
+            "junk": b("Mark as junk or not junk"),
+         ], ["id"]), "One entry per message")], ["changes"])],
+        ["name": "move_messages",
+         "description": "Moves (or copies) messages to a mailbox, for example to archive them. Returns each message's new id (the old one is no longer valid).",
+         "inputSchema": obj(["ids": ids, "mailbox_id": s("Destination mailbox id"), "copy": b("Copy instead of moving")], ["ids", "mailbox_id"])],
+        ["name": "delete_messages",
+         "description": "Deletes messages or drafts by id: they go to their account's Trash. A draft created since Mail was last launched keeps a copy in Drafts until Mail is relaunched.",
          "inputSchema": obj(["ids": ids], ["ids"])],
-        ["name": "creer_brouillons",
-         "description": "Crée un ou plusieurs brouillons (nouveau message, réponse, réponse à tous, transfert), avec pièces jointes et signature, sans rien envoyer. Renvoie l'identifiant de chaque brouillon.",
-         "inputSchema": obj(["brouillons": arr(composition, "Brouillons à créer")], ["brouillons"])],
-        ["name": "envoyer",
-         "description": "ENVOIE réellement des mails : soit des brouillons existants (brouillon_ids : recomposés, envoyés puis supprimés), soit des messages composés directement (messages, mêmes champs que creer_brouillons). À n'utiliser qu'après accord explicite.",
-         "inputSchema": obj(["brouillon_ids": ids, "messages": arr(composition, "Messages à composer et envoyer")])],
-        ["name": "gerer_boites",
-         "description": "Crée ou renomme des boîtes aux lettres (pour supprimer : supprimer_boites).",
+        ["name": "create_drafts",
+         "description": "Creates one or more drafts (new message, reply, reply all, forward), with attachments and signature, without sending anything. Returns each draft's id.",
+         "inputSchema": obj(["drafts": arr(composition, "Drafts to create")], ["drafts"])],
+        ["name": "send",
+         "description": "ACTUALLY SENDS email: either existing drafts (draft_ids: recomposed, sent, then deleted), or messages composed directly (messages, same fields as create_drafts). Only use after explicit approval.",
+         "inputSchema": obj(["draft_ids": ids, "messages": arr(composition, "Messages to compose and send")])],
+        ["name": "manage_mailboxes",
+         "description": "Creates or renames mailboxes (to delete: delete_mailboxes).",
          "inputSchema": obj([
-            "creer": arr(obj(["chemin": s("Chemin, ex. « Clients/2026 »"), "compte": s("Compte (id) ; local par défaut (Sur mon Mac)")], ["chemin"]), "Boîtes à créer"),
-            "renommer": arr(obj(["id": s("Identifiant de la boîte"), "nom": s("Nouveau nom (dernier élément du chemin)")], ["id", "nom"]), "Boîtes à renommer"),
+            "create": arr(obj(["path": s("Path, e.g. \"Clients/2026\""), "account_id": s("Account (id); local by default (On My Mac)")], ["path"]), "Mailboxes to create"),
+            "rename": arr(obj(["id": s("Mailbox id"), "name": s("New name (last element of the path)")], ["id", "name"]), "Mailboxes to rename"),
          ])],
-        ["name": "supprimer_boites",
-         "description": "Supprime définitivement des boîtes aux lettres par identifiant (avec leur contenu). Refuse une boîte qui contient des messages ou des sous-boîtes, sauf forcer: true. Passe par le menu de Mail : Mail passe au premier plan quelques secondes (exige l'accès Accessibilité).",
-         "inputSchema": obj(["ids": arr(s("Identifiant de boîte (voir boites)"), "Boîtes à supprimer"),
-                             "forcer": b("Supprimer même si la boîte contient des messages ou des sous-boîtes")], ["ids"])],
-        ["name": "relever",
-         "description": "Relève le courrier (tous les comptes ou un seul), et synchronise la boîte IMAP si demandé.",
-         "inputSchema": obj(["compte": s("Identifiant du compte"), "synchroniser": b("Synchroniser aussi le compte (exige compte)")])],
+        ["name": "delete_mailboxes",
+         "description": "Permanently deletes mailboxes by id (with their content). Refuses a mailbox that contains messages or sub-mailboxes, unless force: true. Goes through Mail's menu: Mail comes to the front for a few seconds (requires Accessibility access).",
+         "inputSchema": obj(["ids": arr(s("Mailbox id (see list_mailboxes)"), "Mailboxes to delete"),
+                             "force": b("Delete even if the mailbox contains messages or sub-mailboxes")], ["ids"])],
+        ["name": "fetch_mail",
+         "description": "Checks for new mail (all accounts or one), and syncs the IMAP account if asked.",
+         "inputSchema": obj(["account_id": s("Account id"), "sync": b("Also sync the account (requires account_id)")])],
     ]
 
     static func call(_ name: String, _ a: JSON) throws -> Any {
         switch name {
-        case "boites": return try Handlers.boites(a)
-        case "messages": return try Handlers.messages(a)
-        case "lire_messages": return try Handlers.lireMessages(a)
-        case "enregistrer_pieces_jointes": return try Handlers.enregistrerPJ(a)
-        case "marquer_messages": return try Handlers.marquer(a)
-        case "deplacer_messages": return try Handlers.deplacer(a)
-        case "supprimer_messages": return try Handlers.supprimer(a)
-        case "creer_brouillons": return try Compose.creerBrouillons(a)
-        case "envoyer": return try Compose.envoyer(a)
-        case "gerer_boites": return try Handlers.gererBoites(a)
-        case "supprimer_boites": return try Handlers.supprimerBoites(a)
-        case "relever": return try Handlers.relever(a)
-        default: throw MCPError("outil inconnu : \(name)")
+        case "list_mailboxes": return try Handlers.boites(a)
+        case "list_messages": return try Handlers.messages(a)
+        case "read_messages": return try Handlers.lireMessages(a)
+        case "save_attachments": return try Handlers.enregistrerPJ(a)
+        case "mark_messages": return try Handlers.marquer(a)
+        case "move_messages": return try Handlers.deplacer(a)
+        case "delete_messages": return try Handlers.supprimer(a)
+        case "create_drafts": return try Compose.creerBrouillons(a)
+        case "send": return try Compose.envoyer(a)
+        case "manage_mailboxes": return try Handlers.gererBoites(a)
+        case "delete_mailboxes": return try Handlers.supprimerBoites(a)
+        case "fetch_mail": return try Handlers.relever(a)
+        default: throw MCPError("unknown tool: \(name)")
         }
     }
 }

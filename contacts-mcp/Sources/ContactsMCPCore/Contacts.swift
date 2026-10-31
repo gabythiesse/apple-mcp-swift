@@ -16,7 +16,7 @@ enum CN {
                 CNContactStore().requestAccess(for: .contacts) { g, _ in ok = g; sem.signal() }
                 sem.wait()
                 guard ok else {
-                    throw MCPError("accès à Contacts refusé. Réglages Système > Confidentialité et sécurité > Contacts : autoriser ContactsMCP, puis relancer l'app Claude.")
+                    throw MCPError("access to Contacts denied. System Settings > Privacy & Security > Contacts: allow ContactsMCP, then restart the Claude app.")
                 }
             }
             granted = true
@@ -52,12 +52,12 @@ enum CN {
 
     static func contact(_ id: String, _ keys: [CNKeyDescriptor]) throws -> CNContact {
         do { return try store.unifiedContact(withIdentifier: id, keysToFetch: keys) }
-        catch { throw MCPError("contact introuvable : \(id)") }
+        catch { throw MCPError("contact not found: \(id)") }
     }
 
     static func group(_ id: String) throws -> CNGroup {
         guard let g = try store.groups(matching: CNGroup.predicateForGroups(withIdentifiers: [id])).first else {
-            throw MCPError("groupe introuvable : \(id)")
+            throw MCPError("group not found: \(id)")
         }
         return g
     }
@@ -69,7 +69,7 @@ enum CN {
     static func container(_ id: String?) throws -> String {
         guard let id else { return store.defaultContainerIdentifier() }
         guard try !store.containers(matching: CNContainer.predicateForContainers(withIdentifiers: [id])).isEmpty else {
-            throw MCPError("compte introuvable : \(id) (voir l'outil groupes)")
+            throw MCPError("account not found: \(id) (see the list_groups tool)")
         }
         return id
     }
@@ -78,7 +78,7 @@ enum CN {
         let r = CNSaveRequest()
         try build(r)
         let t0 = Date()
-        defer { let ms = Int(Date().timeIntervalSince(t0) * 1000); if ms > 300 { log("écriture framework \(ms) ms") } }
+        defer { let ms = Int(Date().timeIntervalSince(t0) * 1000); if ms > 300 { log("framework write \(ms) ms") } }
         try store.execute(r)
     }
 
@@ -90,10 +90,10 @@ enum CN {
 
     static func typeCompte(_ t: CNContainerType) -> String {
         switch t {
-        case .local: return "sur_mon_mac"
+        case .local: return "on_my_mac"
         case .exchange: return "exchange"
         case .cardDAV: return "carddav"
-        default: return "inconnu"
+        default: return "unknown"
         }
     }
 }
@@ -102,20 +102,19 @@ enum CN {
 
 enum Labels {
     enum Kind { case phone, generic, date, relation }
-    private static let commun: [(String, String)] = [("domicile", CNLabelHome), ("travail", CNLabelWork), ("autre", CNLabelOther), ("ecole", CNLabelSchool)]
+    private static let commun: [(String, String)] = [("home", CNLabelHome), ("work", CNLabelWork), ("other", CNLabelOther), ("school", CNLabelSchool)]
     private static let specifiques: [Kind: [(String, String)]] = [
-        .phone: [("mobile", CNLabelPhoneNumberMobile), ("iphone", CNLabelPhoneNumberiPhone), ("principal", CNLabelPhoneNumberMain),
-                 ("fax_domicile", CNLabelPhoneNumberHomeFax), ("fax_travail", CNLabelPhoneNumberWorkFax), ("bip", CNLabelPhoneNumberPager)],
-        .generic: [("icloud", CNLabelEmailiCloud), ("page_accueil", CNLabelURLAddressHomePage)],
-        .date: [("anniversaire", CNLabelDateAnniversary)],
-        .relation: [("pere", CNLabelContactRelationFather), ("mere", CNLabelContactRelationMother), ("parent", CNLabelContactRelationParent),
-                    ("frere", CNLabelContactRelationBrother), ("soeur", CNLabelContactRelationSister), ("enfant", CNLabelContactRelationChild),
-                    ("fils", CNLabelContactRelationSon), ("fille", CNLabelContactRelationDaughter), ("ami", CNLabelContactRelationFriend),
-                    ("conjoint", CNLabelContactRelationSpouse), ("partenaire", CNLabelContactRelationPartner),
+        .phone: [("mobile", CNLabelPhoneNumberMobile), ("iphone", CNLabelPhoneNumberiPhone), ("main", CNLabelPhoneNumberMain),
+                 ("home_fax", CNLabelPhoneNumberHomeFax), ("work_fax", CNLabelPhoneNumberWorkFax), ("pager", CNLabelPhoneNumberPager)],
+        .generic: [("icloud", CNLabelEmailiCloud), ("homepage", CNLabelURLAddressHomePage)],
+        .date: [("anniversary", CNLabelDateAnniversary)],
+        .relation: [("father", CNLabelContactRelationFather), ("mother", CNLabelContactRelationMother), ("parent", CNLabelContactRelationParent),
+                    ("brother", CNLabelContactRelationBrother), ("sister", CNLabelContactRelationSister), ("child", CNLabelContactRelationChild),
+                    ("son", CNLabelContactRelationSon), ("daughter", CNLabelContactRelationDaughter), ("friend", CNLabelContactRelationFriend),
+                    ("spouse", CNLabelContactRelationSpouse), ("partner", CNLabelContactRelationPartner),
                     ("assistant", CNLabelContactRelationAssistant), ("manager", CNLabelContactRelationManager)],
     ]
-    private static let anglais: [String: String] = ["home": "domicile", "work": "travail", "other": "autre", "school": "ecole",
-                                                    "main": "principal", "homepage": "page_accueil", "anniversary": "anniversaire"]
+    private static let alias: [String: String] = ["home_page": "homepage", "fax_home": "home_fax", "fax_work": "work_fax"]
     private static let inverse: [String: String] = {
         var d: [String: String] = [:]
         for (fr, cn) in commun + specifiques.values.flatMap({ $0 }) where d[cn] == nil { d[cn] = fr }
@@ -125,7 +124,7 @@ enum Labels {
     static func cn(_ s: String?, _ kind: Kind) -> String? {
         guard let s, !s.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         var key = s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current).replacingOccurrences(of: " ", with: "_")
-        key = anglais[key] ?? key
+        key = alias[key] ?? key
         return (commun + (specifiques[kind] ?? [])).first { $0.0 == key }?.1 ?? s
     }
 
@@ -146,10 +145,10 @@ enum Dates {
     static func components(_ s: String) throws -> DateComponents {
         let t = s.trimmingCharacters(in: .whitespaces)
         guard let m = pattern.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) else {
-            throw MCPError("date invalide « \(s) » : attendu AAAA-MM-JJ, ou --MM-JJ sans année")
+            throw MCPError("invalid date “\(s)”: expected YYYY-MM-DD, or --MM-DD for a birthday without a year")
         }
         func g(_ i: Int) -> Int? { Range(m.range(at: i), in: t).flatMap { Int(t[$0]) } }
-        guard let mo = g(2), let d = g(3), (1...12).contains(mo), (1...31).contains(d) else { throw MCPError("date invalide : \(s)") }
+        guard let mo = g(2), let d = g(3), (1...12).contains(mo), (1...31).contains(d) else { throw MCPError("invalid date: \(s)") }
         return DateComponents(year: g(1), month: mo, day: d)
     }
 
@@ -160,7 +159,7 @@ enum Dates {
 
     static func jour(_ s: String) throws -> Date {
         let dc = try components(s)
-        guard dc.year != nil, let d = cal.date(from: dc) else { throw MCPError("date complète attendue (AAAA-MM-JJ) : \(s)") }
+        guard dc.year != nil, let d = cal.date(from: dc) else { throw MCPError("full date expected (YYYY-MM-DD): \(s)") }
         return d
     }
 

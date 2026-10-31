@@ -3,9 +3,9 @@ import Foundation
 
 Responsabilite.relancerSiBesoin()   // voir Responsabilite.swift : autorisations macOS liées à ce binaire, pas au client
 
-// --accessibilite : demande à macOS l'accès Accessibilité pour CE binaire (fenêtre système, entrée pré-ajoutée dans
+// --accessibility : demande à macOS l'accès Accessibilité pour CE binaire (fenêtre système, entrée pré-ajoutée dans
 // Réglages Système > Confidentialité et sécurité > Accessibilité), puis affiche l'état et quitte. Sert à l'installation.
-if CommandLine.arguments.contains("--accessibilite") {
+if CommandLine.arguments.contains("--accessibility") {
     import_ApplicationServices_trusted()
     exit(0)
 }
@@ -18,7 +18,7 @@ DispatchQueue(label: "safari-mcp.stdio").async {
         guard !trimmed.isEmpty else { continue }
         guard let data = trimmed.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) else {
-            Stdio.send(["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32700, "message": "JSON invalide"]])
+            Stdio.send(["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32700, "message": "Parse error: invalid JSON"]])
             continue
         }
         if let batch = obj as? [JSON] {

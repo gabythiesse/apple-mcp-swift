@@ -14,7 +14,7 @@ enum Stdio {
     /// stdout est réservé au protocole : une ligne JSON par message, rien d'autre
     static func send(_ obj: Any) {
         guard var data = try? JSONSerialization.data(withJSONObject: obj, options: [.withoutEscapingSlashes]) else {
-            log("réponse non sérialisable")
+            log("response not serializable")
             return
         }
         data.append(0x0A)
@@ -39,10 +39,10 @@ enum Server {
     static let name = "contacts"
     static let version = "1.0.0"
     static let instructions = """
-    Pilote l'app Contacts du Mac : comptes, groupes et sous-groupes, contacts (tous les champs, note, photo), recherche, doublons, fusion, vCard. \
-    Chaque lecture et création renvoie des identifiants stables à réutiliser. Les écritures prennent des listes (lot). \
-    Dates : AAAA-MM-JJ, ou --MM-JJ pour un anniversaire sans année. Libellés : mobile, iphone, principal, domicile, travail, autre… ou texte libre. \
-    Les suppressions se font uniquement par identifiant et sont définitives.
+    Controls the Mac Contacts app: accounts, groups and subgroups, contacts (every field, note, photo), search, duplicates, merging, vCard. \
+    Every read and create returns stable identifiers to reuse. Writes take lists (batch). \
+    Dates: YYYY-MM-DD, or --MM-DD for a birthday without a year. Labels: mobile, iphone, main, home, work, other… or free text. \
+    Deletions are by identifier only and are permanent.
     """
 
     static func handle(_ msg: JSON) -> JSON? {
@@ -70,10 +70,10 @@ enum Server {
                 let value = try Tools.call(tool, args)
                 return result(id, ["content": [["type": "text", "text": jsonText(value)]]])
             } catch {
-                return result(id, ["content": [["type": "text", "text": "Erreur : \(error)"]], "isError": true])
+                return result(id, ["content": [["type": "text", "text": "Error: \(error)"]], "isError": true])
             }
         default:
-            return ["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "Méthode inconnue : \(method)"]]
+            return ["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "Method not found: \(method)"]]
         }
     }
 
@@ -91,12 +91,12 @@ extension Dictionary where Key == String, Value == Any {
         return s
     }
     func req(_ k: String) throws -> String {
-        guard let s = nonEmpty(k) else { throw MCPError("paramètre manquant : \(k)") }
+        guard let s = nonEmpty(k) else { throw MCPError("missing parameter: \(k)") }
         return s
     }
     func bool(_ k: String) -> Bool? {
         if let b = self[k] as? Bool { return b }
-        if let s = self[k] as? String { return ["true", "oui", "1"].contains(s.lowercased()) }
+        if let s = self[k] as? String { return ["true", "yes", "1"].contains(s.lowercased()) }
         return nil
     }
     func int(_ k: String) -> Int? { (self[k] as? NSNumber)?.intValue ?? (self[k] as? String).flatMap { Int($0) } }

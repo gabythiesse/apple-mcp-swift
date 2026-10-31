@@ -15,7 +15,7 @@ enum AS {
         p.arguments = ["-g", "-j", "-b", bundle]
         try? p.run()
         p.waitUntilExit()
-        log("Contacts lancé (open \(p.terminationStatus))")
+        log("Contacts launched (open \(p.terminationStatus))")
     }
 
     private static func execute(_ src: String) -> (NSAppleEventDescriptor?, Int, String) {
@@ -26,7 +26,7 @@ enum AS {
         let ms = Int(Date().timeIntervalSince(t0) * 1000)
         if ms > 300 { log("AppleScript \(ms) ms : \(src.split(separator: "\n").dropFirst(2).prefix(2).joined(separator: " ⏎ ").prefix(80))") }
         let num = (err?[NSAppleScript.errorNumber] as? NSNumber)?.intValue ?? 0
-        return (res, num, "\(err?[NSAppleScript.errorMessage] ?? "erreur inconnue") (\(num))")
+        return (res, num, "\(err?[NSAppleScript.errorMessage] ?? "unknown error") (\(num))")
     }
 
     /// Contacts tourne-t-il ? (libproc, sans lancer de processus : un Apple Event vers une app fermée attend ~5 s avant -600)
@@ -56,9 +56,9 @@ enum AS {
         }
         if let res { return res }
         if num == -1743 {
-            throw MCPError("Automatisation refusée : Réglages Système > Confidentialité et sécurité > Automatisation, autoriser ContactsMCP à piloter Contacts.")
+            throw MCPError("Automation denied: System Settings > Privacy & Security > Automation, allow ContactsMCP to control Contacts.")
         }
-        throw MCPError("AppleScript : \(msg)")
+        throw MCPError("AppleScript: \(msg)")
     }
 
     static func q(_ s: String) -> String {

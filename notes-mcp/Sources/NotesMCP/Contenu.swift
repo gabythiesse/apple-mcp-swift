@@ -49,7 +49,7 @@ enum Contenu {
 
     /// HTML relu : les images intégrées en base64 sont remplacées par un repère
     static func nettoyer(_ body: String) -> String {
-        body.replacingOccurrences(of: #"src="data:[^"]*""#, with: "src=\"(image : voir pieces_jointes)\"", options: .regularExpression)
+        body.replacingOccurrences(of: #"src="data:[^"]*""#, with: "src=\"(image: see attachments)\"", options: .regularExpression)
     }
 
     /// Texte relu : sans caractères de remplacement des pièces jointes, sans blancs superflus
@@ -71,6 +71,6 @@ enum Contenu {
             f.dateFormat = fmt
             if let d = f.date(from: s) { return d }
         }
-        throw MCPError("date invalide : \(s) (AAAA-MM-JJ ou AAAA-MM-JJTHH:MM)")
+        throw MCPError("invalid date: \(s) (YYYY-MM-DD or YYYY-MM-DDTHH:MM)")
     }
 }

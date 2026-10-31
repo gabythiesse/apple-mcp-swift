@@ -17,14 +17,14 @@ enum DB {
         tried = true
         var h: OpaquePointer?
         guard sqlite3_open_v2(path, &h, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            log("NoteStore.sqlite inaccessible (Accès complet au disque ?) : tags, épinglage et checklists absents")
+            log("NoteStore.sqlite not accessible (Full Disk Access?): tags, pinning and checklists unavailable")
             sqlite3_close(h); return nil
         }
         sqlite3_busy_timeout(h, 2000)
         handle = h
         for r in rows("SELECT Z_ENT, Z_NAME FROM Z_PRIMARYKEY") { if let n = Int(r[0]) { ent[r[1]] = n } }
         if ent["ICNote"] == nil {
-            log("NoteStore.sqlite illisible (schéma inattendu)")
+            log("NoteStore.sqlite unreadable (unexpected schema)")
             sqlite3_close(h); handle = nil
         }
         return handle

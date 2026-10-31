@@ -15,7 +15,7 @@ public func contactsMCPMain() {
             guard !trimmed.isEmpty else { continue }
             guard let data = trimmed.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) else {
-                Stdio.send(["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32700, "message": "JSON invalide"]])
+                Stdio.send(["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32700, "message": "Parse error"]])
                 continue
             }
             if let batch = obj as? [JSON] {

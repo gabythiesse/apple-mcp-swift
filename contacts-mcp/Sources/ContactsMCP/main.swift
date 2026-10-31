@@ -8,7 +8,7 @@ var buf = [CChar](repeating: 0, count: 4096)
 let exe = proc_pidpath(getpid(), &buf, UInt32(buf.count)) > 0 ? String(cString: buf) : CommandLine.arguments[0]
 let lib = String(exe[..<(exe.lastIndex(of: "/") ?? exe.startIndex)]) + "/libContactsMCPCore.dylib"
 guard let h = dlopen(lib, RTLD_NOW), let entry = dlsym(h, "contacts_mcp_main") else {
-    fputs("[contacts-mcp] chargement impossible de \(lib) : \(dlerror().map { String(cString: $0) } ?? "?")\n", stderr)
+    fputs("[contacts-mcp] cannot load \(lib): \(dlerror().map { String(cString: $0) } ?? "?")\n", stderr)
     exit(1)
 }
 unsafeBitCast(entry, to: (@convention(c) () -> Void).self)()

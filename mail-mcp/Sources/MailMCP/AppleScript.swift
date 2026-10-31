@@ -20,11 +20,11 @@ enum AS {
         var errNum = 0
         let work = {
             var err: NSDictionary?
-            guard let script = NSAppleScript(source: src) else { errMsg = "script invalide"; return }
+            guard let script = NSAppleScript(source: src) else { errMsg = "invalid script"; return }
             let d = script.executeAndReturnError(&err)
             if let e = err {
                 errNum = (e[NSAppleScript.errorNumber] as? Int) ?? 0
-                errMsg = (e[NSAppleScript.errorMessage] as? String) ?? "erreur AppleScript"
+                errMsg = (e[NSAppleScript.errorMessage] as? String) ?? "AppleScript error"
                 return
             }
             out = convert(d)
@@ -33,7 +33,7 @@ enum AS {
         if Thread.isMainThread { work() } else { DispatchQueue.main.sync(execute: work) }
         if let m = errMsg {
             if errNum == -1743 || errNum == -1744 {
-                throw MCPError("macOS refuse que Claude contrôle Mail : autorise-le dans Réglages Système > Confidentialité et sécurité > Automatisation.")
+                throw MCPError("macOS does not allow Claude to control Mail: allow it in System Settings > Privacy & Security > Automation.")
             }
             throw MCPError("Mail : \(m) (\(errNum))")
         }

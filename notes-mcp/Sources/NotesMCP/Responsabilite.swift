@@ -22,7 +22,7 @@ enum Responsabilite {
         // stdin, stdout et stderr sont hérités : l'enfant parle directement au client MCP
         guard posix_spawn(&pid, exe, nil, &attr, &argv, environ) == 0 else {
             unsetenv(marqueur)
-            fputs("[notes-mcp] relance en responsable impossible, poursuite dans ce processus\n", stderr)
+            fputs("[notes-mcp] relaunch as responsible process failed, continuing in this process\n", stderr)
             return
         }
         enfant = pid

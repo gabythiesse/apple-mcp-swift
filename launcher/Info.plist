@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>dev.applemcp.mcp</string>
+	<string>dev.applemcp.launcher</string>
 	<key>CFBundleName</key>
 	<string>AppleMCP</string>
 	<key>CFBundleDisplayName</key>
@@ -15,16 +15,16 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSRemindersUsageDescription</key>
-	<string>AppleMCP pilote Rappels pour les clients MCP.</string>
+	<string>AppleMCP lets MCP clients manage your Reminders.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
-	<string>AppleMCP pilote Rappels pour les clients MCP.</string>
+	<string>AppleMCP lets MCP clients manage your Reminders.</string>
 	<key>NSCalendarsUsageDescription</key>
-	<string>AppleMCP pilote Calendrier pour les clients MCP.</string>
+	<string>AppleMCP lets MCP clients manage your Calendar.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>AppleMCP pilote Calendrier pour les clients MCP.</string>
+	<string>AppleMCP lets MCP clients manage your Calendar.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>AppleMCP pilote Contacts pour les clients MCP.</string>
+	<string>AppleMCP lets MCP clients manage your Contacts.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>AppleMCP pilote Mail, Notes, Safari et Contacts pour les clients MCP.</string>
+	<string>AppleMCP lets MCP clients control Mail, Notes, Safari and Contacts.</string>
 </dict>
 </plist>

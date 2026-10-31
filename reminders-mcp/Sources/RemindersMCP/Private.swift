@@ -31,7 +31,7 @@ private func receiver(_ o: AnyObject, _ sel: Selector) -> AnyObject? {
 private func imp<T>(_ o: AnyObject, _ s: String, _ t: T.Type) throws -> (T, Selector, AnyObject) {
     let sel = NSSelectorFromString(s)
     guard let r = receiver(o, sel), let cls = object_getClass(r), let m = class_getMethodImplementation(cls, sel) else {
-        throw MCPError("ReminderKit : \(type(of: o)) ne répond plus à \(s) (macOS a peut-être changé ce framework privé)")
+        throw MCPError("ReminderKit: \(type(of: o)) no longer responds to \(s) (macOS may have changed this private framework)")
     }
     return (unsafeBitCast(m, to: t), sel, r)
 }
@@ -49,13 +49,13 @@ private func callE(_ o: AnyObject, _ s: String, _ a: AnyObject?) throws -> AnyOb
 }
 private func bool(_ o: AnyObject, _ s: String) throws -> Bool { let (f, sel, r) = try imp(o, s, FBool.self); return f(r, sel) }
 private func must(_ o: AnyObject?, _ what: String) throws -> AnyObject {
-    guard let o else { throw MCPError("ReminderKit : \(what) introuvable") }
+    guard let o else { throw MCPError("ReminderKit: \(what) not found") }
     return o
 }
 /// Lecture sans échec : nil si le sélecteur n'existe pas
 private func opt(_ o: AnyObject?, _ s: String) -> AnyObject? { o.flatMap { try? call($0, s) } }
 private func cls(_ n: String) throws -> AnyObject {
-    guard let c = NSClassFromString(n) else { throw MCPError("ReminderKit : classe \(n) absente") }
+    guard let c = NSClassFromString(n) else { throw MCPError("ReminderKit: class \(n) missing") }
     return c as AnyObject
 }
 private func alloc(_ n: String) throws -> AnyObject { try must(try call(try cls(n), "alloc"), n) }
@@ -103,7 +103,7 @@ enum RK {
 
     static func require() throws {
         guard available else {
-            throw MCPError("ReminderKit indisponible sur ce macOS : drapeau, tags, sous-tâches, sections, groupes, URL et images sont inaccessibles")
+            throw MCPError("ReminderKit unavailable on this macOS: flag, tags, subtasks, sections, groups, URL and images are inaccessible")
         }
     }
 
@@ -114,11 +114,11 @@ enum RK {
     private static func save(_ sr: AnyObject) throws {
         let (f, sel, r) = try imp(sr, "saveSynchronouslyWithError:", FSave.self)
         var e: NSError?
-        if !f(r, sel, &e) { throw MCPError("ReminderKit a refusé l'enregistrement : \(e?.localizedDescription ?? "raison inconnue") \(e.map { "(\($0.code))" } ?? "")") }
+        if !f(r, sel, &e) { throw MCPError("ReminderKit refused the save: \(e?.localizedDescription ?? "unknown reason") \(e.map { "(\($0.code))" } ?? "")") }
     }
 
     private static func oid(_ entity: String, _ id: String) throws -> AnyObject {
-        guard let u = UUID(uuidString: id) else { throw MCPError("identifiant invalide : \(id)") }
+        guard let u = UUID(uuidString: id) else { throw MCPError("invalid ID: \(id)") }
         return try must(try call(try cls(entity), "objectIDWithUUID:", u as NSUUID), "objectID")
     }
 
@@ -126,12 +126,12 @@ enum RK {
     private static func idOf(_ o: AnyObject) -> String? { uuid(opt(o, "remObjectID") ?? opt(o, "objectID")) }
 
     private static func reminder(_ st: AnyObject, _ id: String) throws -> AnyObject {
-        guard let r = try? callE(st, "fetchReminderWithObjectID:error:", try oid("REMReminder", id)) else { throw MCPError("rappel introuvable : \(id)") }
+        guard let r = try? callE(st, "fetchReminderWithObjectID:error:", try oid("REMReminder", id)) else { throw MCPError("reminder not found: \(id)") }
         return r
     }
 
     private static func list(_ st: AnyObject, _ id: String) throws -> AnyObject {
-        guard let l = try? callE(st, "fetchListWithObjectID:error:", try oid("REMList", id)) else { throw MCPError("liste introuvable : \(id)") }
+        guard let l = try? callE(st, "fetchListWithObjectID:error:", try oid("REMList", id)) else { throw MCPError("list not found: \(id)") }
         return l
     }
 
@@ -239,7 +239,7 @@ enum RK {
         let st = try store()
         let sr = try saveRequest(st)
         let r = try reminder(st, id)
-        let ci = try must(try call(sr, "updateReminder:", r), "modification du rappel")
+        let ci = try must(try call(sr, "updateReminder:", r), "reminder change")
 
         if let f = x.flagged {
             let fc = try must(try call(ci, "flaggedContext"), "flaggedContext")
@@ -267,7 +267,7 @@ enum RK {
             if u.isEmpty {
                 try callV(ac, "removeURLAttachments")
             } else {
-                guard let url = URL(string: u), url.scheme != nil else { throw MCPError("URL invalide : \(u)") }
+                guard let url = URL(string: u), url.scheme != nil else { throw MCPError("invalid URL: \(u)") }
                 _ = try call(ac, "setURLAttachmentWithURL:", url as NSURL)
             }
         }
@@ -277,25 +277,25 @@ enum RK {
                 // Retirer du parent ne suffit pas : le rappel doit être remis dans sa liste, sinon il disparaît
                 guard uuid(opt(r, "parentReminderID")) != nil, let listID = uuid(opt(r, "listID")) else { try save(sr); return }
                 try callV(ci, "removeFromParentReminder")
-                try callV(try must(try call(sr, "updateList:", try list(st, listID)), "modification de la liste"), "addReminderChangeItem:", ci)
+                try callV(try must(try call(sr, "updateList:", try list(st, listID)), "list change"), "addReminderChangeItem:", ci)
             } else {
-                guard pid != id else { throw MCPError("un rappel ne peut pas être sa propre sous-tâche") }
+                guard pid != id else { throw MCPError("a reminder cannot be its own subtask") }
                 let p = try reminder(st, pid)
-                guard uuid(opt(p, "parentReminderID")) == nil else { throw MCPError("le parent est déjà une sous-tâche : Rappels n'a qu'un niveau de sous-tâches") }
-                guard try children(st, [id]).isEmpty else { throw MCPError("ce rappel a ses propres sous-tâches : Rappels n'a qu'un niveau de sous-tâches") }
-                let pci = try must(try call(sr, "updateReminder:", p), "modification du parent")
+                guard uuid(opt(p, "parentReminderID")) == nil else { throw MCPError("the parent is already a subtask: Reminders only supports one level of subtasks") }
+                guard try children(st, [id]).isEmpty else { throw MCPError("this reminder has its own subtasks: Reminders only supports one level of subtasks") }
+                let pci = try must(try call(sr, "updateReminder:", p), "parent change")
                 try callV(try must(try call(pci, "subtaskContext"), "subtaskContext"), "addReminderChangeItem:", ci)
             }
         }
 
         if let sid = x.sectionID {
-            guard let listID = uuid(opt(r, "listID")) else { throw MCPError("liste du rappel introuvable") }
+            guard let listID = uuid(opt(r, "listID")) else { throw MCPError("reminder's list not found") }
             // Sortir d'une section = appartenir à la liste elle-même (une appartenance « obsolète » est ignorée)
             if !sid.isEmpty, try !sections(listID).contains(where: { $0.id == sid }) {
-                throw MCPError("section \(sid) absente de la liste du rappel")
+                throw MCPError("section \(sid) is not in the reminder's list")
             }
             let group = sid.isEmpty ? listID : sid
-            let lci = try must(try call(sr, "updateList:", try list(st, listID)), "modification de la liste")
+            let lci = try must(try call(sr, "updateList:", try list(st, listID)), "list change")
             let ctx = try must(try call(lci, "sectionsContextChangeItem"), "sectionsContextChangeItem")
             let member = UUID(uuidString: id)! as NSUUID
             let (mk, sel, _) = try imp(try alloc("REMMembership"), "initWithMemberIdentifier:groupIdentifier:isObsolete:modifiedOn:", FMembership.self)
@@ -312,13 +312,13 @@ enum RK {
         let st = try store()
         let sr = try saveRequest(st)
         let r = try reminder(st, id)
-        let ci = try must(try call(sr, "updateReminder:", r), "modification du rappel")
-        let dest = try must(try call(sr, "updateList:", try list(st, listID)), "liste de destination")
+        let ci = try must(try call(sr, "updateReminder:", r), "reminder change")
+        let dest = try must(try call(sr, "updateList:", try list(st, listID)), "destination list")
         if uuid(opt(r, "parentReminderID")) != nil { try callV(ci, "removeFromParentReminder") }
         try callV(dest, "addReminderChangeItem:", ci)
         let sub = try must(try call(ci, "subtaskContext"), "subtaskContext")
         for k in try children(st, [id]) {
-            try callV(sub, "addReminderChangeItem:", try must(try call(sr, "updateReminder:", k), "sous-tâche"))
+            try callV(sub, "addReminderChangeItem:", try must(try call(sr, "updateReminder:", k), "subtask"))
         }
         try save(sr)
     }
@@ -326,10 +326,10 @@ enum RK {
     static func addImage(_ id: String, data: Data, uti: String, width: Int, height: Int) throws {
         let st = try store()
         let sr = try saveRequest(st)
-        let ci = try must(try call(sr, "updateReminder:", try reminder(st, id)), "modification du rappel")
+        let ci = try must(try call(sr, "updateReminder:", try reminder(st, id)), "reminder change")
         let ac = try must(try call(ci, "attachmentContext"), "attachmentContext")
         let (add, sel, rcv) = try imp(ac, "addImageAttachmentWithData:uti:width:height:", FImage.self)
-        _ = try must(add(rcv, sel, data as NSData, uti as NSString, UInt(width), UInt(height)), "pièce jointe image")
+        _ = try must(add(rcv, sel, data as NSData, uti as NSString, UInt(width), UInt(height)), "image attachment")
         try save(sr)
     }
 
@@ -338,10 +338,10 @@ enum RK {
     static func createGroup(_ name: String, sameAccountAs listID: String) throws -> String {
         let st = try store()
         let sr = try saveRequest(st)
-        let acc = try must(opt(try list(st, listID), "account"), "compte")
-        let aci = try must(try call(sr, "updateAccount:", acc), "modification du compte")
-        let g = try must(try call(sr, "addGroupWithName:toAccountGroupContextChangeItem:", name as NSString, try call(aci, "groupContext")), "groupe")
-        guard let gid = uuid(opt(g, "objectID")) else { throw MCPError("identifiant du groupe introuvable") }
+        let acc = try must(opt(try list(st, listID), "account"), "account")
+        let aci = try must(try call(sr, "updateAccount:", acc), "account change")
+        let g = try must(try call(sr, "addGroupWithName:toAccountGroupContextChangeItem:", name as NSString, try call(aci, "groupContext")), "group")
+        guard let gid = uuid(opt(g, "objectID")) else { throw MCPError("group ID not found") }
         try save(sr)
         return gid
     }
@@ -351,14 +351,14 @@ enum RK {
         let st = try store()
         let sr = try saveRequest(st)
         let l = try list(st, listID)
-        let lci = try must(try call(sr, "updateList:", l), "modification de la liste")
+        let lci = try must(try call(sr, "updateList:", l), "list change")
         if let gid = groupID {
             let g = try list(st, gid)
-            guard (try? bool(g, "isGroup")) == true else { throw MCPError("\(gid) n'est pas un groupe") }
-            let gci = try must(try call(sr, "updateList:", g), "modification du groupe")
+            guard (try? bool(g, "isGroup")) == true else { throw MCPError("\(gid) is not a group") }
+            let gci = try must(try call(sr, "updateList:", g), "group change")
             try callV(try must(try call(gci, "sublistContext"), "sublistContext"), "addListChangeItem:", lci)
         } else {
-            let aci = try must(try call(sr, "updateAccount:", try must(opt(l, "account"), "compte")), "modification du compte")
+            let aci = try must(try call(sr, "updateAccount:", try must(opt(l, "account"), "account")), "account change")
             try callV(aci, "addListChangeItem:", lci)
         }
         try save(sr)
@@ -367,7 +367,7 @@ enum RK {
     static func deleteGroup(_ id: String) throws {
         let st = try store()
         let sr = try saveRequest(st)
-        let gci = try must(try call(sr, "updateList:", try list(st, id)), "modification du groupe")
+        let gci = try must(try call(sr, "updateList:", try list(st, id)), "group change")
         try callV(gci, "removeFromParent")
         try save(sr)
     }
@@ -375,10 +375,10 @@ enum RK {
     static func createSection(_ listID: String, name: String) throws -> String {
         let st = try store()
         let sr = try saveRequest(st)
-        let lci = try must(try call(sr, "updateList:", try list(st, listID)), "modification de la liste")
+        let lci = try must(try call(sr, "updateList:", try list(st, listID)), "list change")
         let ctx = try must(try call(lci, "sectionsContextChangeItem"), "sectionsContextChangeItem")
         let s = try must(try call(sr, "addListSectionWithDisplayName:toListSectionContextChangeItem:", name as NSString, ctx), "section")
-        guard let sid = uuid(opt(s, "objectID")) else { throw MCPError("identifiant de la section introuvable") }
+        guard let sid = uuid(opt(s, "objectID")) else { throw MCPError("section ID not found") }
         try save(sr)
         return sid
     }
@@ -386,11 +386,11 @@ enum RK {
     static func deleteSection(_ id: String) throws -> String {
         let st = try store()
         guard let s = try? callE(st, "fetchListSectionWithObjectID:error:", try oid("REMListSection", id)) else {
-            throw MCPError("section introuvable : \(id)")
+            throw MCPError("section not found: \(id)")
         }
         let name = opt(s, "displayName") as? String ?? ""
         let sr = try saveRequest(st)
-        try callV(try must(try call(sr, "updateListSection:", s), "modification de la section"), "removeFromList")
+        try callV(try must(try call(sr, "updateListSection:", s), "section change"), "removeFromList")
         try save(sr)
         return name
     }

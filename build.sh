@@ -1,30 +1,31 @@
 #!/bin/zsh
-# Build release d'un serveur, installation au chemin stable bin/<Binaire>, signature avec l'identité fixe « Apple MCP ».
-# macOS lie les autorisations à « identifiant + certificat » : elles survivent aux recompilations.
-# (Une signature ad hoc lie l'autorisation au contenu exact du binaire : chaque build la faisait redemander.)
-# L'identité vit dans le trousseau dédié ~/Library/Keychains/apple-mcp.keychain-db (voir .signature/), que codesign
-# peut utiliser sans aucune invite. Le certificat doit être marqué « de confiance » une fois (.signature/confiance.command).
-# Usage : ./build.sh safari-mcp   |   ./build.sh --signer <binaire> [identifiant]   |   ./build.sh --tout
+# Release build of one server, installed at the stable path <server>/bin/<Binary> and signed with the fixed "Apple MCP" identity.
+# macOS ties permissions to "identifier + certificate", so they survive rebuilds.
+# (An ad hoc signature ties the permission to the exact binary contents: every build asked again.)
+# The identity lives in the dedicated keychain ~/Library/Keychains/apple-mcp.keychain-db (created by installer.command),
+# which codesign can use without any prompt.
+# Usage: ./build.sh safari-mcp   |   ./build.sh --sign <binary> [identifier]   |   ./build.sh --all
 set -e
-RACINE=${0:a:h}
-IDENTITE=$(<"$RACINE/.signature/identite.sha1")
-TROUSSEAU="$HOME/Library/Keychains/apple-mcp.keychain-db"
+ROOT=${0:a:h}
+IDENTITY=$(<"$ROOT/.signature/identite.sha1")
+KEYCHAIN="$HOME/Library/Keychains/apple-mcp.keychain-db"
 
-signer() {
-  security unlock-keychain -p "$(<"$RACINE/.signature/trousseau.motdepasse")" "$TROUSSEAU" 2>/dev/null || true
-  if [[ -n $2 ]]; then codesign --force --timestamp=none -s "$IDENTITE" -i "$2" "$1"
-  else codesign --force --timestamp=none -s "$IDENTITE" "$1"; fi
+sign() {
+  security unlock-keychain -p "$(<"$ROOT/.signature/trousseau.motdepasse")" "$KEYCHAIN" 2>/dev/null || true
+  if [[ -n $2 ]]; then codesign --force --timestamp=none -s "$IDENTITY" -i "$2" "$1"
+  else codesign --force --timestamp=none -s "$IDENTITY" "$1"; fi
 }
 
-if [[ $1 == --signer ]]; then signer "$2" "$3"; exit; fi
-if [[ $1 == --tout ]]; then for d in "$RACINE"/*-mcp "$RACINE"/launcher; do "$0" "${d:t}"; done; exit; fi
+if [[ $1 == --sign ]]; then sign "$2" "$3"; exit; fi
+if [[ $1 == --all ]]; then for d in "$ROOT"/*-mcp "$ROOT"/launcher; do "$0" "${d:t}"; done; exit; fi
 
-dossier="$RACINE/${1:?usage : build.sh <dossier>-mcp}"
-cd "$dossier"
-[[ -x build.sh ]] && exec ./build.sh   # Contacts : lanceur + bibliothèque, script propre
-binaire=$(ls bin | grep -v '^\.' | grep -v '\.' | head -1)
-out=$(swift build -c release 2>&1) || { echo "$out" | grep -E "error:"; echo "build en échec"; exit 1 }
-install -m 755 .build/release/$binaire bin/$binaire
-signer bin/$binaire dev.applemcp.${1}
+dir="$ROOT/${1:?usage: build.sh <name>-mcp}"
+cd "$dir"
+[[ -x build.sh ]] && exec ./build.sh   # Contacts and the launcher have their own script
+binary=$(grep -m1 -oE 'name: "[A-Za-z]+MCP"' Package.swift | cut -d'"' -f2)   # package name = executable name
+out=$(swift build -c release 2>&1) || { echo "$out" | grep -E "error:"; echo "build failed"; exit 1 }
+mkdir -p bin
+install -m 755 .build/release/$binary bin/$binary
+sign bin/$binary dev.applemcp.${1}
 rm -f bin/*.cstemp(N)
-echo "installé et signé : $PWD/bin/$binaire"
+echo "installed and signed: $PWD/bin/$binary"

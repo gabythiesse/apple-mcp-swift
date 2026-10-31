@@ -14,7 +14,7 @@ enum Stdio {
     /// stdout est réservé au protocole : une ligne JSON par message, rien d'autre
     static func send(_ obj: Any) {
         guard var data = try? JSONSerialization.data(withJSONObject: obj, options: [.withoutEscapingSlashes]) else {
-            log("réponse non sérialisable")
+            log("response not serializable")
             return
         }
         data.append(0x0A)
@@ -39,11 +39,11 @@ enum Server {
     static let name = "notes"
     static let version = "1.0.0"
     static let instructions = """
-    Pilote l'app Notes du Mac (dossiers imbriqués, notes, pièces jointes ; tags, épinglage et checklists en lecture seule). \
-    Identifiants courts et stables : n123 = note, d45 = dossier, a67 = pièce jointe, c1 = compte. \
-    Dates en heure locale : AAAA-MM-JJ ou AAAA-MM-JJTHH:MM. Le titre d'une note est sa première ligne. \
-    Contenu en texte simple (# titre, - puce, 1. liste, **gras**) ou en HTML. \
-    supprimer_notes envoie dans « Supprimées récemment » (definitif: true pour purger) ; modifier_notes avec dossier_id restaure.
+    Drives the Mac Notes app (nested folders, notes, attachments; tags, pinning and checklists are read-only). \
+    Short, stable ids: n123 = note, d45 = folder, a67 = attachment, c1 = account. \
+    Dates in local time: YYYY-MM-DD or YYYY-MM-DDTHH:MM. A note's title is its first line. \
+    Content in plain text (# heading, - bullet, 1. list, **bold**) or HTML. \
+    delete_notes sends notes to “Recently Deleted” (permanent: true to purge); update_notes with folder_id restores them.
     """
 
     static func handle(_ msg: JSON) -> JSON? {
@@ -71,10 +71,10 @@ enum Server {
                 let value = try Tools.call(tool, args)
                 return result(id, ["content": [["type": "text", "text": jsonText(value)]]])
             } catch {
-                return result(id, ["content": [["type": "text", "text": "Erreur : \(error)"]], "isError": true])
+                return result(id, ["content": [["type": "text", "text": "Error: \(error)"]], "isError": true])
             }
         default:
-            return ["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "Méthode inconnue : \(method)"]]
+            return ["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "Unknown method: \(method)"]]
         }
     }
 
@@ -92,12 +92,12 @@ extension Dictionary where Key == String, Value == Any {
         return s
     }
     func req(_ k: String) throws -> String {
-        guard let s = nonEmpty(k) else { throw MCPError("paramètre manquant : \(k)") }
+        guard let s = nonEmpty(k) else { throw MCPError("missing parameter: \(k)") }
         return s
     }
     func bool(_ k: String) -> Bool? {
         if let b = self[k] as? Bool { return b }
-        if let s = self[k] as? String { return ["true", "oui", "1"].contains(s.lowercased()) }
+        if let s = self[k] as? String { return ["true", "yes", "oui", "1"].contains(s.lowercased()) }
         return nil
     }
     func int(_ k: String) -> Int? { (self[k] as? NSNumber)?.intValue ?? (self[k] as? String).flatMap { Int($0) } }

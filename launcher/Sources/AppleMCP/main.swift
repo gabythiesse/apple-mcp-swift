@@ -1,9 +1,9 @@
-// AppleMCP : lanceur unique des six serveurs MCP Apple. Usage : AppleMCP <reminders|calendar|mail|notes|contacts|safari>
-// Pourquoi : macOS lie chaque autorisation au « processus responsable ». En se déclarant responsable de lui-même
-// (responsibility_spawnattrs_setdisclaim) puis en lançant le serveur demandé comme enfant ordinaire, c'est LE LANCEUR
-// que macOS voit pour tout : une seule ligne « AppleMCP » dans Accès complet au disque, Accessibilité, Rappels, Calendrier,
-// Contacts, Automatisation — quel que soit le client (Claude, Codex, Terminal). Signé avec le certificat « Apple MCP »,
-// l'autorisation est liée à « identifiant + certificat » et survit aux recompilations (du lanceur comme des serveurs).
+// AppleMCP: single launcher for the six Apple MCP servers. Usage: AppleMCP <reminders|calendar|mail|notes|contacts|safari>
+// Why: macOS ties every permission to the "responsible process". By disclaiming responsibility for itself
+// (responsibility_spawnattrs_setdisclaim) and then spawning the requested server as an ordinary child, THE LAUNCHER is
+// what macOS sees for everything: a single "AppleMCP" row in Full Disk Access, Accessibility, Reminders, Calendar,
+// Contacts, Automation, whatever the client (Claude, Codex, Terminal). Signed with the "Apple MCP" certificate,
+// the permission is tied to "identifier + certificate" and survives rebuilds (of the launcher and of the servers).
 import Foundation
 
 let serveurs: [String: String] = [
@@ -12,14 +12,14 @@ let serveurs: [String: String] = [
     "contacts": "contacts-mcp/bin/ContactsMCP", "safari": "safari-mcp/bin/SafariMCP",
 ]
 guard CommandLine.arguments.count >= 2, let relatif = serveurs[CommandLine.arguments[1]] else {
-    fputs("usage : AppleMCP <\(serveurs.keys.sorted().joined(separator: "|"))> [options du serveur]\n", stderr)
+    fputs("usage: AppleMCP <\(serveurs.keys.sorted().joined(separator: "|"))> [server options]\n", stderr)
     exit(64)
 }
 let exe = Bundle.main.executablePath ?? CommandLine.arguments[0]
 let racine = URL(fileURLWithPath: exe).resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
 let cible = racine.appendingPathComponent(relatif).path
 
-// 1. Se relancer en responsable de soi-même (une fois ; le marqueur évite la boucle)
+// 1. Relaunch as our own responsible process (once; the marker prevents a loop)
 typealias Disclaim = @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
 nonisolated(unsafe) var enfant: pid_t = 0
 func transmettre(_ sig: Int32) { if enfant > 0 { kill(enfant, sig) } }
@@ -44,11 +44,11 @@ func attendre(_ pid: pid_t) -> Never {
 if ProcessInfo.processInfo.environment["APPLE_MCP_RESPONSABLE"] == nil {
     setenv("APPLE_MCP_RESPONSABLE", "1", 1)
     if let pid = lancer(exe, Array(CommandLine.arguments.dropFirst()), disclaim: true) { attendre(pid) }
-    // relance impossible : on continue dans ce processus (responsabilité héritée du client)
+    // relaunch failed: keep going in this process (responsibility inherited from the client)
 }
 
-// 2. Lancer le serveur comme enfant ordinaire : il hérite de la responsabilité du lanceur et NE se relance PAS lui-même
+// 2. Launch the server as an ordinary child: it inherits the launcher's responsibility and does NOT relaunch itself
 for m in ["RAPPELS", "CALENDRIER", "MAIL", "NOTES", "CONTACTS", "SAFARI"] { setenv("\(m)_MCP_RESPONSABLE", "1", 1) }
-guard FileManager.default.isExecutableFile(atPath: cible) else { fputs("[AppleMCP] serveur introuvable : \(cible)\n", stderr); exit(66) }
-guard let pid = lancer(cible, Array(CommandLine.arguments.dropFirst(2)), disclaim: false) else { fputs("[AppleMCP] lancement impossible : \(cible)\n", stderr); exit(71) }
+guard FileManager.default.isExecutableFile(atPath: cible) else { fputs("[AppleMCP] server not found: \(cible)\n", stderr); exit(66) }
+guard let pid = lancer(cible, Array(CommandLine.arguments.dropFirst(2)), disclaim: false) else { fputs("[AppleMCP] could not launch: \(cible)\n", stderr); exit(71) }
 attendre(pid)

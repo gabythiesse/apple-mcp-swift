@@ -14,7 +14,7 @@ enum Stdio {
     /// stdout est réservé au protocole : une ligne JSON par message, rien d'autre
     static func send(_ obj: Any) {
         guard var data = try? JSONSerialization.data(withJSONObject: obj, options: [.withoutEscapingSlashes]) else {
-            log("réponse non sérialisable")
+            log("response not serializable")
             return
         }
         data.append(0x0A)
@@ -36,12 +36,12 @@ func jsonText(_ value: Any) -> String {
 }
 
 enum Server {
-    static let name = "rappels"
+    static let name = "reminders"
     static let version = "1.0.0"
     static let instructions = """
-    Pilote l'app Rappels du Mac (listes, groupes, sections, rappels, sous-tâches, tags, drapeau, alarmes, récurrence, URL, images). \
-    Chaque lecture et création renvoie des identifiants stables à réutiliser. Les dates sont en heure locale : AAAA-MM-JJ (journée) ou AAAA-MM-JJTHH:MM. \
-    Les suppressions se font uniquement par identifiant et sont définitives.
+    Controls the Mac Reminders app (lists, groups, sections, reminders, subtasks, tags, flag, alarms, recurrence, URL, images). \
+    Every read and create returns stable IDs to reuse. Dates are in local time: YYYY-MM-DD (all day) or YYYY-MM-DDTHH:MM. \
+    Deletions are by ID only and are permanent.
     """
 
     static func handle(_ msg: JSON) -> JSON? {
@@ -69,10 +69,10 @@ enum Server {
                 let value = try Tools.call(tool, args)
                 return result(id, ["content": [["type": "text", "text": jsonText(value)]]])
             } catch {
-                return result(id, ["content": [["type": "text", "text": "Erreur : \(error)"]], "isError": true])
+                return result(id, ["content": [["type": "text", "text": "Error: \(error)"]], "isError": true])
             }
         default:
-            return ["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "Méthode inconnue : \(method)"]]
+            return ["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "Unknown method: \(method)"]]
         }
     }
 
@@ -90,12 +90,12 @@ extension Dictionary where Key == String, Value == Any {
         return s
     }
     func req(_ k: String) throws -> String {
-        guard let s = nonEmpty(k) else { throw MCPError("paramètre manquant : \(k)") }
+        guard let s = nonEmpty(k) else { throw MCPError("missing parameter: \(k)") }
         return s
     }
     func bool(_ k: String) -> Bool? {
         if let b = self[k] as? Bool { return b }
-        if let s = self[k] as? String { return ["true", "oui", "1"].contains(s.lowercased()) }
+        if let s = self[k] as? String { return ["true", "yes", "1"].contains(s.lowercased()) }
         return nil
     }
     func int(_ k: String) -> Int? { (self[k] as? NSNumber)?.intValue ?? (self[k] as? String).flatMap { Int($0) } }

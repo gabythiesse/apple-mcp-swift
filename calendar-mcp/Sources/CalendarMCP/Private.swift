@@ -7,7 +7,7 @@ import Garde
 enum Priv {
     /// Exécute un appel privé ; une exception ObjC devient une MCPError
     static func guarded(_ what: String, _ body: () -> Void) throws {
-        if let err = mcp_essayer(body) { throw MCPError("\(what) : appel privé refusé par macOS (\(err))") }
+        if let err = mcp_essayer(body) { throw MCPError("\(what): private call rejected by macOS (\(err))") }
     }
 
     private static func value(_ o: NSObject, _ key: String) -> Any? {
@@ -24,7 +24,7 @@ enum Priv {
     }
 
     static func setTravel(_ e: EKEvent, minutes: Double) throws {
-        try guarded("temps de trajet") { e.setValue(max(0, minutes) * 60, forKey: "travelTime") }
+        try guarded("travel time") { e.setValue(max(0, minutes) * 60, forKey: "travelTime") }
     }
 
     /// Début occupé, trajet compris (pour les créneaux libres)
@@ -55,26 +55,26 @@ enum Priv {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue else {
-            throw MCPError("pièce jointe introuvable : \(path)")
+            throw MCPError("attachment not found: \(path)")
         }
-        guard FileManager.default.isReadableFile(atPath: url.path) else { throw MCPError("pièce jointe illisible : \(path)") }
+        guard FileManager.default.isReadableFile(atPath: url.path) else { throw MCPError("attachment not readable: \(path)") }
         if let ok = value(e, "supportsAddingAttachments") as? Bool, !ok {
-            throw MCPError("ce calendrier n'accepte pas les pièces jointes")
+            throw MCPError("this calendar does not accept attachments")
         }
         guard let cls = NSClassFromString("EKAttachment") as? NSObject.Type else {
-            throw MCPError("pièces jointes indisponibles sur cette version de macOS")
+            throw MCPError("attachments unavailable on this macOS version")
         }
         let initSel = NSSelectorFromString("initWithFilepath:"), addSel = NSSelectorFromString("addAttachment:")
         guard cls.instancesRespond(to: initSel), e.responds(to: addSel) else {
-            throw MCPError("pièces jointes indisponibles sur cette version de macOS")
+            throw MCPError("attachments unavailable on this macOS version")
         }
         var att: AnyObject?
-        try guarded("pièce jointe") {
+        try guarded("attachment") {
             att = cls.perform(NSSelectorFromString("alloc"))?.takeUnretainedValue()
                 .perform(initSel, with: url as NSURL)?.takeUnretainedValue()
             if let att { e.perform(addSel, with: att) }
         }
-        guard att != nil else { throw MCPError("pièce jointe non créée : \(path)") }
+        guard att != nil else { throw MCPError("attachment not created: \(path)") }
         return url.lastPathComponent
     }
 
@@ -88,10 +88,10 @@ enum Priv {
 
     /// Ajoute des invités ; l'envoi part à l'enregistrement
     static func addAttendee(_ e: EKEvent, email: String, name: String?) throws {
-        guard let cls = NSClassFromString("EKAttendee") as? NSObject.Type else { throw MCPError("invités indisponibles sur cette version de macOS") }
+        guard let cls = NSClassFromString("EKAttendee") as? NSObject.Type else { throw MCPError("attendees unavailable on this macOS version") }
         let make = NSSelectorFromString("attendeeWithName:emailAddress:"), add = NSSelectorFromString("addAttendee:")
-        guard cls.responds(to: make), e.responds(to: add) else { throw MCPError("invités indisponibles sur cette version de macOS") }
-        try guarded("invité \(email)") {
+        guard cls.responds(to: make), e.responds(to: add) else { throw MCPError("attendees unavailable on this macOS version") }
+        try guarded("attendee \(email)") {
             if let a = cls.perform(make, with: (name ?? email) as NSString, with: email as NSString)?.takeUnretainedValue() {
                 e.perform(add, with: a)
             }
@@ -101,9 +101,9 @@ enum Priv {
     /// Répond à une invitation (accepté 2, refusé 3, provisoire 4) ; la réponse part à l'organisateur à l'enregistrement
     static func setParticipation(_ e: EKEvent, _ status: EKParticipantStatus) throws {
         guard e.responds(to: NSSelectorFromString("setParticipationStatus:")) else {
-            throw MCPError("réponse aux invitations indisponible sur cette version de macOS")
+            throw MCPError("invitation responses unavailable on this macOS version")
         }
-        try guarded("réponse à l'invitation") { e.setValue(status.rawValue, forKey: "participationStatus") }
+        try guarded("invitation response") { e.setValue(status.rawValue, forKey: "participationStatus") }
     }
 
     /// Les sélecteurs privés utilisés existent-ils sur ce macOS ? (vérification sans effet)

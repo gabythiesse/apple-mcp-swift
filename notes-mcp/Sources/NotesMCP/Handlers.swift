@@ -32,7 +32,7 @@ enum Handlers {
     // MARK: - Dossiers
 
     static func dossiers(_ a: JSON) throws -> Any {
-        let filtre = a.nonEmpty("nom_contient")
+        let filtre = a.nonEmpty("name_contains")
         let r = arr(try AS.run("set FILTRE to \(AS.q(filtre ?? ""))\n" + """
         set out to {}
         repeat with ac in accounts
@@ -56,26 +56,26 @@ enum Handlers {
         let trash = DB.trashFolders()
         let comptes: [JSON] = arr(r.last).map { x in
             let c = arr(x)
-            var d: JSON = ["id": IDs.short(str(c[0])), "nom": str(c[1])]
-            if str(c[0]) == defAcc { d["par_defaut"] = true }
-            if !str(c[2]).isEmpty { d["dossier_par_defaut"] = IDs.short(str(c[2])) }
-            d["dossiers"] = arr(c[3]).map { y -> JSON in
+            var d: JSON = ["id": IDs.short(str(c[0])), "name": str(c[1])]
+            if str(c[0]) == defAcc { d["default"] = true }
+            if !str(c[2]).isEmpty { d["default_folder_id"] = IDs.short(str(c[2])) }
+            d["folders"] = arr(c[3]).map { y -> JSON in
                 let f = arr(y)
-                var o: JSON = ["id": IDs.short(str(f[0])), "nom": str(f[1]), "nb_notes": f[3]]
+                var o: JSON = ["id": IDs.short(str(f[0])), "name": str(f[1]), "note_count": f[3]]
                 if !str(f[2]).isEmpty { o["parent_id"] = IDs.short(str(f[2])) }
-                if corbeilleNoms.contains(str(f[1])) || (IDs.pk(str(f[0])).map { trash?.contains($0) ?? false } ?? false) { o["corbeille"] = true }
+                if corbeilleNoms.contains(str(f[1])) || (IDs.pk(str(f[0])).map { trash?.contains($0) ?? false } ?? false) { o["trash"] = true }
                 return o
             }
             return d
         }
-        return ["comptes": comptes]
+        return ["accounts": comptes]
     }
 
     static func creerDossier(_ a: JSON) throws -> Any {
-        let nom = try a.req("nom")
+        let nom = try a.req("name")
         let parent = try a.nonEmpty("parent_id").map { "folder id \(AS.q(try IDs.full($0)))" }
-            ?? a.nonEmpty("compte_id").map { "account id \(AS.q(try IDs.full($0)))" } ?? "default account"
-        let subs = a.strings("sous_dossiers") ?? []
+            ?? a.nonEmpty("account_id").map { "account id \(AS.q(try IDs.full($0)))" } ?? "default account"
+        let subs = a.strings("subfolders") ?? []
         let r = arr(try AS.run("""
         set f to make new folder at \(parent) with properties {name:\(AS.q(nom))}
         set subs to {}
@@ -84,16 +84,16 @@ enum Handlers {
         end repeat
         return {id of f, subs}
         """))
-        var out: JSON = ["ok": true, "id": IDs.short(str(r[0])), "nom": nom]
+        var out: JSON = ["ok": true, "id": IDs.short(str(r[0])), "name": nom]
         let s = IDs.shorts(r[1])
-        if !s.isEmpty { out["sous_dossiers"] = zip(subs, s).map { ["id": $1, "nom": $0] } }
+        if !s.isEmpty { out["subfolders"] = zip(subs, s).map { ["id": $1, "name": $0] } }
         return out
     }
 
     static func renommerDossier(_ a: JSON) throws -> Any {
-        let id = try IDs.full(try a.req("id")), nom = try a.req("nom")
+        let id = try IDs.full(try a.req("id")), nom = try a.req("name")
         _ = try AS.run("set name of folder id \(AS.q(id)) to \(AS.q(nom))")
-        return ["ok": true, "id": IDs.short(id), "nom": nom]
+        return ["ok": true, "id": IDs.short(id), "name": nom]
     }
 
     /// Notes AppleScript ne supprime de façon fiable qu'un dossier vide, et ne supprime pas ses sous-dossiers :
@@ -128,40 +128,40 @@ enum Handlers {
         end repeat
         return {nm, nb, (count of sel) - 1, restants}
         """, timeout: 600))
-        var out: JSON = ["ok": true, "supprime": IDs.short(id), "nom": str(r[0]), "notes_en_corbeille": r[1], "sous_dossiers_supprimes": r[2]]
+        var out: JSON = ["ok": true, "deleted": IDs.short(id), "name": str(r[0]), "notes_trashed": r[1], "subfolders_deleted": r[2]]
         let restants = IDs.shorts(r[3])
-        if !restants.isEmpty { out["ok"] = false; out["non_supprimes"] = restants }
+        if !restants.isEmpty { out["ok"] = false; out["not_deleted"] = restants }
         return out
     }
 
     // MARK: - Notes : lecture
 
     static func notes(_ a: JSON) throws -> Any {
-        let limite = max(1, a.int("limite") ?? 20)
+        let limite = max(1, a.int("limit") ?? 20)
         var clauses: [String] = [], prep = ""
-        if let t = a.nonEmpty("texte") { clauses.append("(name contains \(AS.q(t)) or plaintext contains \(AS.q(t)))") }
-        if let d = a.nonEmpty("modifiees_depuis") { prep += "set d1 to \(AS.date(try Contenu.parseDate(d)))\n"; clauses.append("modification date ≥ d1") }
-        if let d = a.nonEmpty("modifiees_avant") { prep += "set d2 to \(AS.date(try Contenu.parseDate(d)))\n"; clauses.append("modification date < d2") }
+        if let t = a.nonEmpty("text") { clauses.append("(name contains \(AS.q(t)) or plaintext contains \(AS.q(t)))") }
+        if let d = a.nonEmpty("modified_since") { prep += "set d1 to \(AS.date(try Contenu.parseDate(d)))\n"; clauses.append("modification date ≥ d1") }
+        if let d = a.nonEmpty("modified_before") { prep += "set d2 to \(AS.date(try Contenu.parseDate(d)))\n"; clauses.append("modification date < d2") }
         let source = clauses.isEmpty ? "notes of fo" : "(notes of fo whose \(clauses.joined(separator: " and ")))"
 
         // Filtres qui passent par la base
         var garder: Set<Int>? = nil
         if let tag = a.nonEmpty("tag") {
-            guard let s = DB.notesWithTag(tag) else { throw MCPError("le filtre tag nécessite l'Accès complet au disque pour NotesMCP") }
+            guard let s = DB.notesWithTag(tag) else { throw MCPError("the tag filter requires Full Disk Access for NotesMCP") }
             garder = s
         }
-        if a.bool("epinglees") == true {
-            guard let s = DB.pinned() else { throw MCPError("le filtre epinglees nécessite l'Accès complet au disque pour NotesMCP") }
+        if a.bool("pinned") == true {
+            guard let s = DB.pinned() else { throw MCPError("the pinned filter requires Full Disk Access for NotesMCP") }
             garder = garder.map { $0.intersection(s) } ?? s
         }
 
-        let dossier = try a.nonEmpty("dossier_id").map(IDs.full)
-        let inclureCorbeille = dossier != nil || a.bool("supprimees") == true
+        let dossier = try a.nonEmpty("folder_id").map(IDs.full)
+        let inclureCorbeille = dossier != nil || a.bool("include_deleted") == true
         let trashIDs = inclureCorbeille ? [] : (DB.trashFolders() ?? []).compactMap { pk in IDs.store.map { "x-coredata://\($0)/ICFolder/p\(pk)" } }
         var items: [String: (titre: String, fid: String, fnom: String, mod: Date?)] = [:]
         if let d = dossier {
             // Un dossier (et ses sous-dossiers) : un « whose » par dossier
-            let cible = a.bool("sous_dossiers") == false ? "set sel to {\(AS.q(d))}" : "set sel to my subtree(fl, \(AS.q(d)))"
+            let cible = a.bool("include_subfolders") == false ? "set sel to {\(AS.q(d))}" : "set sel to my subtree(fl, \(AS.q(d)))"
             let r = arr(try AS.run("""
             \(prep)set fl to {}
             repeat with ac in accounts
@@ -232,25 +232,25 @@ enum Handlers {
         let flags = DB.flags(tri.compactMap { IDs.pk($0.key) })
         let notes: [JSON] = tri.map { (id, v) in
             Hints.set(id, v.fid)
-            var o: JSON = ["id": IDs.short(id), "titre": v.titre, "dossier_id": IDs.short(v.fid), "dossier": v.fnom]
-            if let m = Contenu.iso(v.mod) { o["modifiee"] = m }
+            var o: JSON = ["id": IDs.short(id), "title": v.titre, "folder_id": IDs.short(v.fid), "folder": v.fnom]
+            if let m = Contenu.iso(v.mod) { o["modified"] = m }
             if let pk = IDs.pk(id), let f = flags?[pk] {
-                if f.epinglee { o["epinglee"] = true }
+                if f.epinglee { o["pinned"] = true }
                 if f.checklist { o["checklist"] = true }
                 if !f.tags.isEmpty { o["tags"] = f.tags }
             }
             return o
         }
         var out: JSON = ["total": total, "notes": notes]
-        if total > notes.count { out["tronque"] = "\(notes.count) sur \(total) : augmenter limite ou filtrer" }
+        if total > notes.count { out["truncated"] = "\(notes.count) of \(total): increase limit or filter" }
         return out
     }
 
     static func lireNotes(_ a: JSON) throws -> Any {
         let ids = try (a.strings("ids") ?? []).map(IDs.full)
-        guard !ids.isEmpty else { throw MCPError("paramètre manquant : ids") }
+        guard !ids.isEmpty else { throw MCPError("missing parameter: ids") }
         let html = a.string("format") == "html"
-        let maxc = a.int("max_caracteres") ?? 20000
+        let maxc = a.int("max_chars") ?? 20000
         let hints = Hints.folders(ids)
         let items = "{" + ids.map { "{\(AS.q($0)), \(AS.q(hints[$0] ?? ""))}" }.joined(separator: ", ") + "}"
         let r = arr(try AS.run("""
@@ -277,26 +277,26 @@ enum Handlers {
         let flags = DB.flags(oks.compactMap { IDs.pk(str($0[1])) })
         let notes: [JSON] = r.map { x in
             let v = arr(x)
-            guard str(v.first) == "ok" else { return ["id": IDs.short(str(v[1])), "ok": false, "erreur": str(v[2])] }
+            guard str(v.first) == "ok" else { return ["id": IDs.short(str(v[1])), "ok": false, "error": str(v[2])] }
             Hints.set(str(v[1]), str(v[3]))
-            var o: JSON = ["id": IDs.short(str(v[1])), "titre": str(v[2]), "dossier_id": IDs.short(str(v[3])), "dossier": str(v[4])]
-            if let d = Contenu.iso(v[5]) { o["creee"] = d }
-            if let d = Contenu.iso(v[6]) { o["modifiee"] = d }
-            if v[7] as? Bool == true { o["verrouillee"] = true; o["contenu"] = "(note verrouillée : contenu illisible)" }
+            var o: JSON = ["id": IDs.short(str(v[1])), "title": str(v[2]), "folder_id": IDs.short(str(v[3])), "folder": str(v[4])]
+            if let d = Contenu.iso(v[5]) { o["created"] = d }
+            if let d = Contenu.iso(v[6]) { o["modified"] = d }
+            if v[7] as? Bool == true { o["locked"] = true; o["content"] = "(locked note: content unreadable)" }
             else {
                 var c = html ? Contenu.nettoyer(str(v[9])) : Contenu.texte(str(v[9]))
-                if c.count > maxc { c = String(c.prefix(maxc)); o["tronque"] = true }
-                o["contenu"] = c
+                if c.count > maxc { c = String(c.prefix(maxc)); o["truncated"] = true }
+                o["content"] = c
             }
-            if v[8] as? Bool == true { o["partagee"] = true }
+            if v[8] as? Bool == true { o["shared"] = true }
             // AppleScript liste chaque pièce jointe deux fois : dédoublonnage par identifiant
             var vus = Set<String>(), pjs: [JSON] = []
             for (pid, nom) in zip(arr(v[10]), arr(v[11])) where vus.insert(str(pid)).inserted {
-                pjs.append(["id": IDs.short(str(pid)), "nom": str(nom)])
+                pjs.append(["id": IDs.short(str(pid)), "name": str(nom)])
             }
-            if !pjs.isEmpty { o["pieces_jointes"] = pjs }
+            if !pjs.isEmpty { o["attachments"] = pjs }
             if let pk = IDs.pk(str(v[1])), let f = flags?[pk] {
-                if f.epinglee { o["epinglee"] = true }
+                if f.epinglee { o["pinned"] = true }
                 if f.checklist { o["checklist"] = true }
                 if !f.tags.isEmpty { o["tags"] = f.tags }
             }
@@ -310,16 +310,16 @@ enum Handlers {
     /// Création sans « id of make » (≈1 s par note) : on relit les identifiants du dossier en un lot après coup
     static func creerNotes(_ a: JSON) throws -> Any {
         let entrees = a.objects("notes") ?? []
-        guard !entrees.isEmpty else { throw MCPError("paramètre manquant : notes") }
+        guard !entrees.isEmpty else { throw MCPError("missing parameter: notes") }
         var resultats = [JSON?](repeating: nil, count: entrees.count)
         var groupes: [(dossier: String, idx: [Int], titres: [String], corps: [String])] = []
         for (k, e) in entrees.enumerated() {
-            guard let titre = e.nonEmpty("titre")?.trimmingCharacters(in: .whitespacesAndNewlines) else {
-                resultats[k] = ["ok": false, "erreur": "titre manquant"]; continue
+            guard let titre = e.nonEmpty("title")?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                resultats[k] = ["ok": false, "error": "missing title"]; continue
             }
             let d: String
-            do { d = try e.nonEmpty("dossier_id").map(IDs.full) ?? "" } catch { resultats[k] = ["ok": false, "titre": titre, "erreur": "\(error)"]; continue }
-            let corps = Contenu.titre(titre) + (Contenu.corps(e, html: "html", texte: "texte") ?? "")
+            do { d = try e.nonEmpty("folder_id").map(IDs.full) ?? "" } catch { resultats[k] = ["ok": false, "title": titre, "error": "\(error)"]; continue }
+            let corps = Contenu.titre(titre) + (Contenu.corps(e, html: "html", texte: "text") ?? "")
             if let g = groupes.firstIndex(where: { $0.dossier == d }) {
                 groupes[g].idx.append(k); groupes[g].titres.append(titre); groupes[g].corps.append(corps)
             } else { groupes.append((d, [k], [titre], [corps])) }
@@ -353,22 +353,22 @@ enum Handlers {
                 var pool = zip(arr(v[2]).map(str), arr(v[3]).map(str)).filter { !avant.contains($0.0) }
                 for (j, k) in g.idx.enumerated() {
                     let titre = g.titres[j]
-                    if let e = errs[j + 1] ?? errs[0] { resultats[k] = ["ok": false, "titre": titre, "erreur": e]; continue }
+                    if let e = errs[j + 1] ?? errs[0] { resultats[k] = ["ok": false, "title": titre, "error": e]; continue }
                     let pos = pool.firstIndex { $0.1.trimmingCharacters(in: .whitespacesAndNewlines) == titre } ?? (pool.isEmpty ? nil : 0)
-                    guard let p = pos else { resultats[k] = ["ok": true, "titre": titre, "avertissement": "créée, identifiant non retrouvé"]; continue }
+                    guard let p = pos else { resultats[k] = ["ok": true, "title": titre, "warning": "created, id not found"]; continue }
                     let id = pool.remove(at: p).0
                     Hints.set(id, fid)
-                    resultats[k] = ["ok": true, "id": IDs.short(id), "titre": titre, "dossier_id": IDs.short(fid)]
+                    resultats[k] = ["ok": true, "id": IDs.short(id), "title": titre, "folder_id": IDs.short(fid)]
                 }
             }
         }
-        let res = resultats.map { $0 ?? ["ok": false, "erreur": "non traité"] }
-        return ["crees": res.filter { $0["ok"] as? Bool == true }.count, "echecs": res.filter { $0["ok"] as? Bool != true }.count, "resultats": res]
+        let res = resultats.map { $0 ?? ["ok": false, "error": "not processed"] }
+        return ["created": res.filter { $0["ok"] as? Bool == true }.count, "failed": res.filter { $0["ok"] as? Bool != true }.count, "results": res]
     }
 
     static func modifierNotes(_ a: JSON) throws -> Any {
-        let mods = a.objects("modifications") ?? []
-        guard !mods.isEmpty else { throw MCPError("paramètre manquant : modifications") }
+        let mods = a.objects("updates") ?? []
+        guard !mods.isEmpty else { throw MCPError("missing parameter: updates") }
         var blocs: [String] = []
         var erreurs: [Int: String] = [:]
         let ids = mods.compactMap { try? IDs.full($0.nonEmpty("id") ?? "") }
@@ -378,15 +378,15 @@ enum Handlers {
             do {
                 let nid = try IDs.full(try m.req("id"))
                 var s = "set n to my getNote(\(AS.q(nid)), \(AS.q(hints[nid] ?? "")))\n"
-                let titre = m.nonEmpty("titre")?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let contenu = Contenu.corps(m, html: "html", texte: "texte")
-                let ajout = Contenu.corps(m, html: "ajouter_html", texte: "ajouter_texte")
+                let titre = m.nonEmpty("title")?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let contenu = Contenu.corps(m, html: "html", texte: "text")
+                let ajout = Contenu.corps(m, html: "append_html", texte: "append_text")
                 // Réécrire le HTML recrée les pièces jointes (doublons, fichiers perdus) et aplatit tags et cases à cocher
                 if titre != nil || contenu != nil || ajout != nil {
                     if let f = IDs.pk(nid).flatMap({ flags[$0] }), f.checklist || !f.tags.isEmpty {
-                        throw MCPError("contenu non modifiable par script : la note a des \(f.checklist ? "cases à cocher" : "tags") que Notes perdrait. Seul le déplacement (dossier_id) est possible")
+                        throw MCPError("content cannot be changed by script: the note has \(f.checklist ? "checkboxes" : "tags") that Notes would lose. Only moving (folder_id) is possible")
                     }
-                    s += "if (count of attachments of n) > 0 then error \"contenu non modifiable par script : la note a des pièces jointes que Notes dupliquerait ou perdrait. Seul le déplacement (dossier_id) est possible\"\n"
+                    s += "if (count of attachments of n) > 0 then error \"content cannot be changed by script: the note has attachments that Notes would duplicate or lose. Only moving (folder_id) is possible\"\n"
                 }
                 switch (titre, contenu) {
                 case let (t?, c?): s += "set body of n to \(AS.q(Contenu.titre(t) + c))\n"
@@ -408,7 +408,7 @@ enum Handlers {
                 if let aj = ajout {
                     s += "set body of n to (body of n) & \(AS.q(aj))\n"
                 }
-                if let d = try m.nonEmpty("dossier_id").map(IDs.full) {
+                if let d = try m.nonEmpty("folder_id").map(IDs.full) {
                     s += "move n to folder id \(AS.q(d))\nset n to note id \(AS.q(nid)) of folder id \(AS.q(d))\n"
                 }
                 blocs.append("""
@@ -427,20 +427,20 @@ enum Handlers {
         let r = arr(try AS.run("set out to {}\n" + blocs.joined(separator: "\n") + "\nreturn out", timeout: 600))
         let res: [JSON] = zip(mods, r).enumerated().map { k, p in
             let v = arr(p.1)
-            if let e = erreurs[k] { return ["ok": false, "id": p.0.string("id") ?? "", "erreur": e] }
-            guard str(v.first) == "ok" else { return ["ok": false, "id": p.0.string("id") ?? "", "erreur": str(v.last)] }
+            if let e = erreurs[k] { return ["ok": false, "id": p.0.string("id") ?? "", "error": e] }
+            guard str(v.first) == "ok" else { return ["ok": false, "id": p.0.string("id") ?? "", "error": str(v.last)] }
             Hints.set(str(v[1]), str(v[3]))
-            var o: JSON = ["ok": true, "id": IDs.short(str(v[1])), "titre": str(v[2])]
-            if p.0.has("dossier_id") { o["dossier_id"] = IDs.short(str(v[3])) }
+            var o: JSON = ["ok": true, "id": IDs.short(str(v[1])), "title": str(v[2])]
+            if p.0.has("folder_id") { o["folder_id"] = IDs.short(str(v[3])) }
             return o
         }
-        return ["modifiees": res.filter { $0["ok"] as? Bool == true }.count, "echecs": res.filter { $0["ok"] as? Bool != true }.count, "resultats": res]
+        return ["updated": res.filter { $0["ok"] as? Bool == true }.count, "failed": res.filter { $0["ok"] as? Bool != true }.count, "results": res]
     }
 
     static func supprimerNotes(_ a: JSON) throws -> Any {
         let ids = try (a.strings("ids") ?? []).map(IDs.full)
-        guard !ids.isEmpty else { throw MCPError("paramètre manquant : ids") }
-        let definitif = a.bool("definitif") == true
+        guard !ids.isEmpty else { throw MCPError("missing parameter: ids") }
+        let definitif = a.bool("permanent") == true
         let hints = Hints.folders(ids)
         let trash = (DB.trashFolders() ?? []).sorted().first.flatMap { pk in IDs.store.map { "x-coredata://\($0)/ICFolder/p\(pk)" } } ?? ""
         let items = "{" + ids.map { "{\(AS.q($0)), \(AS.q(hints[$0] ?? ""))}" }.joined(separator: ", ") + "}"
@@ -461,11 +461,11 @@ enum Handlers {
         """, timeout: 600))
         let res: [JSON] = zip(ids, r).map { id, x in
             let v = arr(x)
-            guard str(v.first) == "ok" else { return ["ok": false, "id": IDs.short(id), "erreur": str(v.last)] }
+            guard str(v.first) == "ok" else { return ["ok": false, "id": IDs.short(id), "error": str(v.last)] }
             if !definitif && !trash.isEmpty { Hints.set(id, trash) }  // la note est maintenant dans la corbeille
             return ["ok": true, "id": IDs.short(id)]
         }
-        return ["supprimees": res.filter { $0["ok"] as? Bool == true }.count, "definitif": definitif, "resultats": res]
+        return ["deleted": res.filter { $0["ok"] as? Bool == true }.count, "permanent": definitif, "results": res]
     }
 
     static func ouvrirNote(_ a: JSON) throws -> Any {
@@ -477,16 +477,16 @@ enum Handlers {
     // MARK: - Pièces jointes
 
     static func ajouterPiecesJointes(_ a: JSON) throws -> Any {
-        let pieces = a.objects("pieces") ?? []
-        guard !pieces.isEmpty else { throw MCPError("paramètre manquant : pieces") }
+        let pieces = a.objects("attachments") ?? []
+        guard !pieces.isEmpty else { throw MCPError("missing parameter: attachments") }
         let ids = pieces.compactMap { try? IDs.full($0.nonEmpty("note_id") ?? "") }
         let hints = Hints.folders(ids)
         var blocs: [String] = [], erreurs: [Int: String] = [:]
         for (k, p) in pieces.enumerated() {
             do {
                 let nid = try IDs.full(try p.req("note_id"))
-                let chemin = (try p.req("chemin") as NSString).expandingTildeInPath
-                guard chemin.hasPrefix("/"), FileManager.default.fileExists(atPath: chemin) else { throw MCPError("fichier introuvable : \(chemin)") }
+                let chemin = (try p.req("path") as NSString).expandingTildeInPath
+                guard chemin.hasPrefix("/"), FileManager.default.fileExists(atPath: chemin) else { throw MCPError("file not found: \(chemin)") }
                 blocs.append("""
                 try
                   set n to my getNote(\(AS.q(nid)), \(AS.q(hints[nid] ?? "")))
@@ -501,11 +501,11 @@ enum Handlers {
         let r = arr(try AS.run("set out to {}\n" + blocs.joined(separator: "\n") + "\nreturn out", timeout: 600))
         let res: [JSON] = zip(pieces, r).enumerated().map { k, p in
             let v = arr(p.1)
-            if let e = erreurs[k] { return ["ok": false, "note_id": p.0.string("note_id") ?? "", "erreur": e] }
-            guard str(v.first) == "ok" else { return ["ok": false, "note_id": p.0.string("note_id") ?? "", "erreur": str(v.last)] }
-            return ["ok": true, "note_id": IDs.short(str(v[1])), "id": IDs.short(str(v[2])), "nom": str(v[3])]
+            if let e = erreurs[k] { return ["ok": false, "note_id": p.0.string("note_id") ?? "", "error": e] }
+            guard str(v.first) == "ok" else { return ["ok": false, "note_id": p.0.string("note_id") ?? "", "error": str(v.last)] }
+            return ["ok": true, "note_id": IDs.short(str(v[1])), "id": IDs.short(str(v[2])), "name": str(v[3])]
         }
-        return ["ajoutees": res.filter { $0["ok"] as? Bool == true }.count, "resultats": res]
+        return ["added": res.filter { $0["ok"] as? Bool == true }.count, "results": res]
     }
 
     /// Référence AppleScript d'une pièce jointe, par sa note quand la base la connaît
@@ -528,11 +528,11 @@ enum Handlers {
 
     /// Notes enregistre dans un dossier de transit (dans la destination), puis le serveur déplace sans jamais écraser
     static func exporterPiecesJointes(_ a: JSON) throws -> Any {
-        let dest = (try a.req("dossier") as NSString).expandingTildeInPath
-        guard dest.hasPrefix("/") else { throw MCPError("dossier : chemin absolu attendu") }
+        let dest = (try a.req("destination") as NSString).expandingTildeInPath
+        guard dest.hasPrefix("/") else { throw MCPError("destination: absolute path expected") }
         let pjIDs = try (a.strings("ids") ?? []).map(IDs.full)
         let noteIDs = try (a.strings("note_ids") ?? []).map(IDs.full)
-        guard !pjIDs.isEmpty || !noteIDs.isEmpty else { throw MCPError("paramètre manquant : ids ou note_ids") }
+        guard !pjIDs.isEmpty || !noteIDs.isEmpty else { throw MCPError("missing parameter: ids or note_ids") }
         let fm = FileManager.default
         try fm.createDirectory(atPath: dest, withIntermediateDirectories: true)
         let transit = dest + "/.notes-mcp-\(UUID().uuidString)"
@@ -578,30 +578,30 @@ enum Handlers {
         var res: [JSON] = []
         for x in r {
             let v = arr(x)
-            guard str(v.first) == "ok" else { res.append(["ok": false, "id": IDs.short(str(v[1])), "erreur": str(v[2])]); continue }
+            guard str(v.first) == "ok" else { res.append(["ok": false, "id": IDs.short(str(v[1])), "error": str(v[2])]); continue }
             let pid = IDs.short(str(v[1])), k = "\(v[3])"
             var nom = str(v[2]).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
             if nom.isEmpty || nom.hasPrefix(".") { nom = pid + nom }
             let staged = (try? fm.contentsOfDirectory(atPath: transit))?.first { $0 == k || $0.hasPrefix(k + ".") }
-            guard let st = staged else { res.append(["ok": false, "id": pid, "erreur": "Notes n'a pas enregistré le fichier"]); continue }
+            guard let st = staged else { res.append(["ok": false, "id": pid, "error": "Notes did not save the file"]); continue }
             if (nom as NSString).pathExtension.isEmpty, !(st as NSString).pathExtension.isEmpty { nom += "." + (st as NSString).pathExtension }
             let cible = dest + "/" + nom
-            if fm.fileExists(atPath: cible) { res.append(["ok": false, "id": pid, "erreur": "existe déjà, non écrasé : \(cible)"]); continue }
-            do { try fm.moveItem(atPath: transit + "/" + st, toPath: cible); res.append(["ok": true, "id": pid, "fichier": cible]) }
-            catch { res.append(["ok": false, "id": pid, "erreur": "\(error.localizedDescription)"]) }
+            if fm.fileExists(atPath: cible) { res.append(["ok": false, "id": pid, "error": "already exists, not overwritten: \(cible)"]); continue }
+            do { try fm.moveItem(atPath: transit + "/" + st, toPath: cible); res.append(["ok": true, "id": pid, "file": cible]) }
+            catch { res.append(["ok": false, "id": pid, "error": "\(error.localizedDescription)"]) }
         }
-        return ["exportees": res.filter { $0["ok"] as? Bool == true }.count, "resultats": res]
+        return ["exported": res.filter { $0["ok"] as? Bool == true }.count, "results": res]
     }
 
     // MARK: - Tags (base)
 
     static func tags(_ a: JSON) throws -> Any {
         var dossiers: [Int]? = nil
-        if let d = a.nonEmpty("dossier_id") {
-            guard let pk = IDs.pk(try IDs.full(d)) else { throw MCPError("dossier_id invalide") }
+        if let d = a.nonEmpty("folder_id") {
+            guard let pk = IDs.pk(try IDs.full(d)) else { throw MCPError("invalid folder_id") }
             dossiers = DB.folderTree(pk)
         }
-        guard let t = DB.tags(folders: dossiers) else { throw MCPError("les tags se lisent dans la base de Notes : donne l'Accès complet au disque à NotesMCP (Réglages Système > Confidentialité et sécurité)") }
-        return ["tags": t.map { ["tag": $0.0, "nb_notes": $0.1] }]
+        guard let t = DB.tags(folders: dossiers) else { throw MCPError("tags are read from the Notes database: grant Full Disk Access to NotesMCP (System Settings > Privacy & Security)") }
+        return ["tags": t.map { ["tag": $0.0, "note_count": $0.1] }]
     }
 }

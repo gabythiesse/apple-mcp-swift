@@ -12,15 +12,15 @@ enum Compose {
     }
 
     private static let dateCitation: DateFormatter = {
-        let d = DateFormatter(); d.locale = Locale(identifier: "fr_FR"); d.dateFormat = "d MMMM yyyy 'à' HH:mm"; return d
+        let d = DateFormatter(); d.locale = Locale(identifier: "en_US_POSIX"); d.dateFormat = "MMMM d, yyyy 'at' HH:mm"; return d
     }()
 
     /// Réponse et transfert recomposés en nouveau message : les commandes reply/forward de Mail figent sa file
     /// Apple Events par intermittence (sondes 07-08, smoke test), ce qui bloque tout Mail jusqu'à ce qu'on le quitte.
     private static func recomposer(_ spec: JSON, tmp: inout String?) throws -> JSON {
-        let reponse = spec.int("repondre_a") != nil
-        let id = spec.int("repondre_a") ?? spec.int("transferer")!
-        guard let ref = try refsMessages([id])[id] else { throw MCPError("message \(id) introuvable dans l'index") }
+        let reponse = spec.int("reply_to_id") != nil
+        let id = spec.int("reply_to_id") ?? spec.int("forward_id")!
+        guard let ref = try refsMessages([id])[id] else { throw MCPError("message \(id) not found in the index") }
         var savePJ = ""
         if !reponse {
             let dir = try tmp ?? Conteneur.nouveau()
@@ -53,13 +53,13 @@ enum Compose {
         let date = (x[5] as? Date).map(dateCitation.string) ?? ""
         let texte = x.s(6).trimmingCharacters(in: .whitespacesAndNewlines)
         var out = spec
-        out["repondre_a"] = nil; out["transferer"] = nil
-        let corps = spec.string("corps") ?? ""
+        out["reply_to_id"] = nil; out["forward_id"] = nil
+        let corps = spec.string("body") ?? ""
         if reponse {
             let dest = rt.isEmpty ? de : rt
-            out["sujet"] = spec.nonEmpty("sujet") ?? (sujet.lowercased().hasPrefix("re:") ? sujet : "Re: " + sujet)
-            out["a"] = [dest] + (spec.strings("a") ?? [])
-            if spec.bool("tous") == true {
+            out["subject"] = spec.nonEmpty("subject") ?? (sujet.lowercased().hasPrefix("re:") ? sujet : "Re: " + sujet)
+            out["to"] = [dest] + (spec.strings("to") ?? [])
+            if spec.bool("reply_all") == true {
                 let miennes = Set(x.l(8).compactMap { ($0 as? String)?.lowercased() })
                 var vus = Set([destinataire(dest).1.lowercased()])
                 let autres = (x.l(3) + x.l(4)).compactMap { $0 as? String }.filter { ad in
@@ -69,13 +69,13 @@ enum Compose {
                 out["cc"] = autres + (spec.strings("cc") ?? [])
             }
             let cite = texte.split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }.joined(separator: "\n")
-            out["corps"] = corps + "\n\nLe \(date), \(de) a écrit :\n\n" + cite
+            out["body"] = corps + "\n\nOn \(date), \(de) wrote:\n\n" + cite
         } else {
-            out["sujet"] = spec.nonEmpty("sujet") ?? (sujet.lowercased().hasPrefix("fwd:") ? sujet : "Fwd: " + sujet)
-            let entete = ["De : \(de)", "Objet : \(sujet)", "Date : \(date)",
-                          "À : \(x.l(3).compactMap { $0 as? String }.joined(separator: ", "))"]
-            out["corps"] = corps + "\n\nDébut du message réexpédié :\n\n" + entete.joined(separator: "\n") + "\n\n" + texte
-            out["pieces_jointes"] = (spec.strings("pieces_jointes") ?? []) + x.l(7).compactMap { $0 as? String }
+            out["subject"] = spec.nonEmpty("subject") ?? (sujet.lowercased().hasPrefix("fwd:") ? sujet : "Fwd: " + sujet)
+            let entete = ["From: \(de)", "Subject: \(sujet)", "Date: \(date)",
+                          "To: \(x.l(3).compactMap { $0 as? String }.joined(separator: ", "))"]
+            out["body"] = corps + "\n\nBegin forwarded message:\n\n" + entete.joined(separator: "\n") + "\n\n" + texte
+            out["attachments"] = (spec.strings("attachments") ?? []) + x.l(7).compactMap { $0 as? String }
         }
         return out
     }
@@ -83,27 +83,27 @@ enum Compose {
     /// Script qui crée l'outgoing message `om` selon la spécification, puis exécute `fin` (save / send)
     private static func script(_ specInitiale: JSON, fin: String, tmp: inout String?) throws -> String {
         var s: [String] = []
-        let spec = (specInitiale.int("repondre_a") ?? specInitiale.int("transferer")) != nil
+        let spec = (specInitiale.int("reply_to_id") ?? specInitiale.int("forward_id")) != nil
             ? try recomposer(specInitiale, tmp: &tmp) : specInitiale
-        let corps = spec.string("corps")
-        s.append("set om to make new outgoing message with properties {subject:\(AS.q(spec.string("sujet") ?? "")), content:\(AS.q((corps ?? "") + "\n")), visible:false}")
-        for (cle, type) in [("a", "to"), ("cc", "cc"), ("cci", "bcc")] {
+        let corps = spec.string("body")
+        s.append("set om to make new outgoing message with properties {subject:\(AS.q(spec.string("subject") ?? "")), content:\(AS.q((corps ?? "") + "\n")), visible:false}")
+        for (cle, type) in [("to", "to"), ("cc", "cc"), ("bcc", "bcc")] {
             for d in spec.strings(cle) ?? [] where !d.trimmingCharacters(in: .whitespaces).isEmpty {
                 let (nom, adr) = destinataire(d)
                 let props = nom.map { "{name:\(AS.q($0)), address:\(AS.q(adr))}" } ?? "{address:\(AS.q(adr))}"
                 s.append("make new \(type) recipient at end of \(type) recipients of om with properties \(props)")
             }
         }
-        if let e = spec.nonEmpty("expediteur") { s.append("set sender of om to \(AS.q(e))") }
+        if let e = spec.nonEmpty("from") { s.append("set sender of om to \(AS.q(e))") }
         if let sig = spec.nonEmpty("signature") { s.append("set message signature of om to signature \(AS.q(sig))") }
-        let pjs = spec.strings("pieces_jointes") ?? []
+        let pjs = spec.strings("attachments") ?? []
         if !pjs.isEmpty {
             // Mail est en bac à sable : il ignore sans erreur un fichier hors de son conteneur (sonde 05) → copie
             let dir = try tmp ?? Conteneur.nouveau()
             tmp = dir
             for (i, p) in pjs.enumerated() {
                 let src = (p as NSString).expandingTildeInPath
-                guard FileManager.default.isReadableFile(atPath: src) else { throw MCPError("pièce jointe illisible : \(p)") }
+                guard FileManager.default.isReadableFile(atPath: src) else { throw MCPError("attachment not readable: \(p)") }
                 try FileManager.default.createDirectory(atPath: "\(dir)/\(i)", withIntermediateDirectories: true)
                 let dst = "\(dir)/\(i)/\((src as NSString).lastPathComponent)"
                 try FileManager.default.copyItem(atPath: src, toPath: dst)
@@ -139,7 +139,7 @@ enum Compose {
     }
 
     static func creerBrouillons(_ a: JSON) throws -> Any {
-        guard let specs = a.objects("brouillons"), !specs.isEmpty else { throw MCPError("paramètre manquant : brouillons") }
+        guard let specs = a.objects("drafts"), !specs.isEmpty else { throw MCPError("missing parameter: drafts") }
         var res: [JSON] = [], pris = Set<Int64>()
         for spec in specs {
             var tmp: String?
@@ -149,14 +149,14 @@ enum Compose {
                 // save, puis close sans enregistrer : un seul brouillon (close saving yes en recrée un)
                 let sc = try script(spec, fin: "save om\nset sj to subject of om\nclose om saving no\nreturn sj", tmp: &tmp)
                 let sujet = try AS.run(sc) as? String ?? ""
-                var d: JSON = ["ok": true, "sujet": sujet]
+                var d: JSON = ["ok": true, "subject": sujet]
                 if let id = try idBrouillon(sujet: sujet, apres: avant, deja: pris) { d["id"] = id; pris.insert(id) }
-                else { d["avertissement"] = "brouillon enregistré, identifiant pas encore indexé" }
+                else { d["warning"] = "draft saved, id not indexed yet" }
                 res.append(d)
-            } catch { res.append(["ok": false, "sujet": spec.string("sujet") ?? "", "erreur": "\(error)"]) }
+            } catch { res.append(["ok": false, "subject": spec.string("subject") ?? "", "error": "\(error)"]) }
         }
         let ok = res.filter { $0["ok"] as? Bool == true }.count
-        return ["crees": ok, "echecs": res.count - ok, "resultats": res]
+        return ["created": ok, "failed": res.count - ok, "results": res]
     }
 
     static func envoyer(_ a: JSON) throws -> Any {
@@ -165,15 +165,15 @@ enum Compose {
             var tmp: String?
             do {
                 let sujet = try AS.run(try script(spec, fin: "set sj to subject of om\nsend om\nreturn sj", tmp: &tmp)) as? String ?? ""
-                res.append(["ok": true, "sujet": sujet])
-            } catch { res.append(["ok": false, "sujet": spec.string("sujet") ?? "", "erreur": "\(error)"]) }
+                res.append(["ok": true, "subject": sujet])
+            } catch { res.append(["ok": false, "subject": spec.string("subject") ?? "", "error": "\(error)"]) }
             // tmp laissé en place : Mail peut encore lire les pièces jointes pendant l'envoi (purgé après une heure)
         }
-        for id in a.ints("brouillon_ids") ?? [] {
+        for id in a.ints("draft_ids") ?? [] {
             var tmp: String?
             do {
                 // Un brouillon enregistré n'est plus un « outgoing message » : on le recompose, on l'envoie, puis on le supprime
-                guard let ref = try refsMessages([id])[id] else { throw MCPError("brouillon \(id) introuvable dans l'index") }
+                guard let ref = try refsMessages([id])[id] else { throw MCPError("draft \(id) not found in the index") }
                 let dir = try Conteneur.nouveau()
                 tmp = dir
                 let x = try AS.run("""
@@ -188,17 +188,17 @@ enum Compose {
                 end repeat
                 return {subject of m, sender of m, address of to recipients of m, address of cc recipients of m, address of bcc recipients of m, (content of m) as text, pj}
                 """) as? [Any] ?? []
-                let spec: JSON = ["sujet": x.s(0), "expediteur": x.s(1), "a": x.l(2), "cc": x.l(3), "cci": x.l(4),
-                                  "corps": x.s(5).trimmingCharacters(in: .newlines), "pieces_jointes": x.l(6)]
+                let spec: JSON = ["subject": x.s(0), "from": x.s(1), "to": x.l(2), "cc": x.l(3), "bcc": x.l(4),
+                                  "body": x.s(5).trimmingCharacters(in: .newlines), "attachments": x.l(6)]
                 var t2: String? = dir
                 let sujet = try AS.run(try script(spec, fin: "set sj to subject of om\nsend om\nreturn sj", tmp: &t2)) as? String ?? ""
                 try AS.run("delete \(ref)")
-                res.append(["ok": true, "brouillon_id": id, "sujet": sujet])
-            } catch { res.append(["ok": false, "brouillon_id": id, "erreur": "\(error)"]) }
+                res.append(["ok": true, "draft_id": id, "subject": sujet])
+            } catch { res.append(["ok": false, "draft_id": id, "error": "\(error)"]) }
             _ = tmp
         }
-        guard !res.isEmpty else { throw MCPError("rien à envoyer : fournir messages ou brouillon_ids") }
+        guard !res.isEmpty else { throw MCPError("nothing to send: provide messages or draft_ids") }
         let ok = res.filter { $0["ok"] as? Bool == true }.count
-        return ["envoyes": ok, "echecs": res.count - ok, "resultats": res]
+        return ["sent": ok, "failed": res.count - ok, "results": res]
     }
 }

@@ -14,7 +14,7 @@ enum Stdio {
     /// stdout est réservé au protocole : une ligne JSON par message, rien d'autre
     static func send(_ obj: Any) {
         guard var data = try? JSONSerialization.data(withJSONObject: obj, options: [.withoutEscapingSlashes]) else {
-            log("réponse non sérialisable")
+            log("response not serializable")
             return
         }
         data.append(0x0A)
@@ -39,11 +39,11 @@ enum Server {
     static let name = "mail"
     static let version = "1.0.0"
     static let instructions = """
-    Pilote l'app Mail du Mac : boîtes, lecture et recherche des messages (index local de Mail), états, déplacements, brouillons (nouveaux, réponses, transferts, pièces jointes), envoi.
-    Identifiant de message = nombre ; il change après un déplacement : réutiliser celui que renvoie deplacer_messages.
-    Identifiant de boîte = "<compte_id>/<chemin>" ("local/<chemin>" pour Sur mon Mac), donné par boites.
-    Dates en heure locale : AAAA-MM-JJ ou AAAA-MM-JJTHH:MM.
-    supprimer_messages met à la corbeille. Seul envoyer fait partir un mail.
+    Controls the Mac's Mail app: mailboxes, reading and searching messages (Mail's local index), message state, moves, drafts (new, replies, forwards, attachments), sending.
+    Message id = number; it changes after a move: reuse the id returned by move_messages.
+    Mailbox id = "<account_id>/<path>" ("local/<path>" for On My Mac), given by list_mailboxes.
+    Dates in local time: YYYY-MM-DD or YYYY-MM-DDTHH:MM.
+    delete_messages moves to the Trash. Only send actually sends an email.
     """
 
     static func handle(_ msg: JSON) -> JSON? {
@@ -71,10 +71,10 @@ enum Server {
                 let value = try Tools.call(tool, args)
                 return result(id, ["content": [["type": "text", "text": jsonText(value)]]])
             } catch {
-                return result(id, ["content": [["type": "text", "text": "Erreur : \(error)"]], "isError": true])
+                return result(id, ["content": [["type": "text", "text": "Error: \(error)"]], "isError": true])
             }
         default:
-            return ["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "Méthode inconnue : \(method)"]]
+            return ["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "Method not found: \(method)"]]
         }
     }
 
@@ -92,12 +92,12 @@ extension Dictionary where Key == String, Value == Any {
         return s
     }
     func req(_ k: String) throws -> String {
-        guard let s = nonEmpty(k) else { throw MCPError("paramètre manquant : \(k)") }
+        guard let s = nonEmpty(k) else { throw MCPError("missing parameter: \(k)") }
         return s
     }
     func bool(_ k: String) -> Bool? {
         if let b = self[k] as? Bool { return b }
-        if let s = self[k] as? String { return ["true", "oui", "1"].contains(s.lowercased()) }
+        if let s = self[k] as? String { return ["true", "yes", "1"].contains(s.lowercased()) }
         return nil
     }
     func int(_ k: String) -> Int? { (self[k] as? NSNumber)?.intValue ?? (self[k] as? String).flatMap { Int($0) } }

@@ -62,7 +62,7 @@ final class FenetreTravail {
     private(set) var ax: AXUIElement
     var uuid: String { AX.ident(ax).components(separatedBy: "UUID=").last.map { String($0.prefix(36)) } ?? "" }
 
-    static let accessibilite = "macOS refuse le pilotage de l'interface : autoriser SafariMCP dans Réglages Système > Confidentialité et sécurité > Accessibilité, puis réessayer"
+    static let accessibilite = "macOS refuses interface control: allow SafariMCP in System Settings > Privacy & Security > Accessibility, then try again"
 
     init() throws {
         guard AXIsProcessTrusted() else { throw MCPError(FenetreTravail.accessibilite) }
@@ -70,12 +70,12 @@ final class FenetreTravail {
         _ = try AS.run(#"tell application "Safari" to make new document"#)
         var nouv: Int?
         _ = AX.attendre(3) { nouv = (try? Set(AS.visibleWindowIDs()).subtracting(avant)).flatMap { $0.count == 1 ? $0.first : nil }; return nouv != nil }
-        guard let w = nouv else { throw MCPError("fenêtre de travail non repérée : rien supprimé") }
+        guard let w = nouv else { throw MCPError("work window not located: nothing deleted") }
         id = w
         _ = try? AS.run("tell application \"Safari\" to set index of window id \(w) to 1")
         AS.activerSafari()
         guard let pid = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Safari").first?.processIdentifier else {
-            throw MCPError("Safari n'est pas lancé")
+            throw MCPError("Safari is not running")
         }
         let appAX = AXUIElementCreateApplication(pid)
         app = appAX
@@ -87,7 +87,7 @@ final class FenetreTravail {
         }
         guard ok, let f else {
             _ = try? AS.run("tell application \"Safari\" to close window id \(w)")
-            throw MCPError(AXIsProcessTrusted() ? "la fenêtre de travail n'est pas passée au premier plan : rien supprimé" : FenetreTravail.accessibilite)
+            throw MCPError(AXIsProcessTrusted() ? "the work window did not come to the front: nothing deleted" : FenetreTravail.accessibilite)
         }
         ax = f
     }
@@ -100,13 +100,13 @@ final class FenetreTravail {
 
     /// Clique un article de la barre des menus (titre exact, ou préfixe si prefixe: true)
     func menu(_ barre: String, _ article: String, prefixe: Bool = false) throws {
-        guard devant() else { throw MCPError("la fenêtre de travail n'est plus au premier plan : arrêt") }
+        guard devant() else { throw MCPError("the work window is no longer in front: stopping") }
         guard let mb = AX.attr(app, kAXMenuBarAttribute) as! AXUIElement?,
               let m = AX.children(mb).first(where: { AX.str($0, kAXTitleAttribute) == barre }),
               let menu = AX.children(m).first,
               let it = AX.children(menu).first(where: { let t = AX.str($0, kAXTitleAttribute); return prefixe ? t.hasPrefix(article) : t == article })
-        else { throw MCPError("menu « \(barre) > \(article) » introuvable") }
-        guard AX.attr(it, kAXEnabledAttribute) as? Bool != false else { throw MCPError("menu « \(barre) > \(article) » indisponible") }
+        else { throw MCPError("menu \"\(barre) > \(article)\" not found") }
+        guard AX.attr(it, kAXEnabledAttribute) as? Bool != false else { throw MCPError("menu \"\(barre) > \(article)\" unavailable") }
         AX.press(it)
     }
 
@@ -130,19 +130,19 @@ enum Suppressions {
     // MARK: - Liste de lecture
 
     static func listeDeLecture(_ a: JSON) throws -> Any {
-        guard let urls = a.strings("urls"), !urls.isEmpty else { throw MCPError("paramètre manquant : urls") }
+        guard let urls = a.strings("urls"), !urls.isEmpty else { throw MCPError("missing parameter: urls") }
         let elements = try lireListe()
         var res: [JSON] = []
         var cibles: [(url: String, titre: String, domaine: String)] = []
         for u in urls {
-            guard let e = elements.first(where: { $0.url == u }) else { res.append(["url": u, "ok": false, "erreur": "absent de la liste de lecture"]); continue }
+            guard let e = elements.first(where: { $0.url == u }) else { res.append(["url": u, "ok": false, "error": "not in the Reading List"]); continue }
             // La ligne affiche « titre, domaine » : refuser si un autre élément non visé s'affiche pareil
             if elements.contains(where: { $0.titre == e.titre && $0.domaine == e.domaine && !urls.contains($0.url) }) {
-                res.append(["url": u, "ok": false, "erreur": "ambigu : un autre élément a le même titre et le même domaine ; rien supprimé"]); continue
+                res.append(["url": u, "ok": false, "error": "ambiguous: another item has the same title and domain; nothing deleted"]); continue
             }
             cibles.append(e)
         }
-        if cibles.isEmpty { return ["resultats": res] }
+        if cibles.isEmpty { return ["results": res] }
         let f = try FenetreTravail()
         defer { f.fermer() }
         let affichee = try f.afficher("Présentation", "Afficher la barre latérale de la liste de lecture", "Masquer la barre latérale de la liste de lecture")
@@ -152,7 +152,7 @@ enum Suppressions {
             table = AX.first(f.ax, ident: "ReadingListSidebarScrollView").flatMap { AX.find($0) { AX.role($0) == "AXTable" }.first }
             return champ != nil && table != nil
         }
-        guard let champ, let table else { throw MCPError("barre latérale de la liste de lecture introuvable : rien supprimé") }
+        guard let champ, let table else { throw MCPError("Reading List sidebar not found: nothing deleted") }
         if let tout = AX.find(f.ax, { AX.role($0) == "AXRadioButton" && AX.str($0, kAXTitleAttribute) == "Tout" }).first { AX.press(tout) }
         defer {
             AX.set(champ, kAXValueAttribute, "" as CFString)
@@ -170,17 +170,17 @@ enum Suppressions {
                     }
                     return lignes.count == 1
                 }
-                guard lignes.count == 1 else { throw MCPError("\(lignes.count) ligne(s) correspondante(s) dans Safari au lieu d'une : rien supprimé") }
+                guard lignes.count == 1 else { throw MCPError("\(lignes.count) matching row(s) in Safari instead of one: nothing deleted") }
                 // Action « Supprimer » de la ligne vérifiée (celle du menu contextuel)
-                guard AX.action(lignes[0], "Supprimer") else { throw MCPError("action Supprimer indisponible sur la ligne : rien supprimé") }
+                guard AX.action(lignes[0], "Supprimer") else { throw MCPError("Delete action unavailable on the row: nothing deleted") }
                 // Vérification : la ligne disparaît tout de suite ; Bookmarks.plist n'est réécrit qu'après ~15 s
                 let encore = { (AX.attr(table, kAXRowsAttribute) as? [AXUIElement] ?? []).contains { r in
                     AX.find(r) { AX.ident($0) == "ReadingListTableCellView" }.contains { AX.str($0, kAXDescriptionAttribute) == "\(c.titre), \(c.domaine)" } } }
-                guard AX.attendre(3, { !encore() }) else { throw MCPError("suppression demandée mais la ligne est encore affichée") }
+                guard AX.attendre(3, { !encore() }) else { throw MCPError("deletion requested but the row is still shown") }
                 res.append(["url": c.url, "ok": true])
-            } catch { res.append(["url": c.url, "ok": false, "erreur": "\(error)"]) }
+            } catch { res.append(["url": c.url, "ok": false, "error": "\(error)"]) }
         }
-        return ["supprimes": res.filter { $0["ok"] as? Bool == true }.count, "resultats": res]
+        return ["deleted": res.filter { $0["ok"] as? Bool == true }.count, "results": res]
     }
 
     private static func lireListe() throws -> [(url: String, titre: String, domaine: String)] {
@@ -199,8 +199,8 @@ enum Suppressions {
     // MARK: - Groupes d'onglets
 
     static func groupesOnglets(_ a: JSON) throws -> Any {
-        let ids = (a["groupe_ids"] as? [Any] ?? []).compactMap { ($0 as? NSNumber)?.intValue ?? ($0 as? String).flatMap { Int($0) } }
-        guard !ids.isEmpty else { throw MCPError("paramètre manquant : groupe_ids") }
+        let ids = (a["group_ids"] as? [Any] ?? []).compactMap { ($0 as? NSNumber)?.intValue ?? ($0 as? String).flatMap { Int($0) } }
+        guard !ids.isEmpty else { throw MCPError("missing parameter: group_ids") }
         var res: [JSON] = []
         var f: FenetreTravail?, affichee = false
         defer {
@@ -210,10 +210,10 @@ enum Suppressions {
             do {
                 let db = try Fichiers.DB(Fichiers.tabs)
                 guard let g = try db.rows("SELECT title, deleted FROM bookmarks WHERE id = ?1 AND type = 1 AND subtype = 0 AND (special_id IS NULL OR special_id = 0) AND id NOT IN (SELECT private_tab_group_id FROM windows WHERE private_tab_group_id IS NOT NULL) AND id NOT IN (SELECT local_tab_group_id FROM windows WHERE local_tab_group_id IS NOT NULL)", [gid]).first,
-                      (g[1] as? Int) == 0 else { throw MCPError("groupe introuvable (voir groupes_onglets)") }
+                      (g[1] as? Int) == 0 else { throw MCPError("group not found (see list_tab_groups)") }
                 let titre = g[0] as? String ?? ""
                 if try !db.rows("SELECT 1 FROM windows WHERE date_closed IS NULL AND active_tab_group_id = ?1", [gid]).isEmpty {
-                    throw MCPError("groupe ouvert dans une fenêtre Safari : basculer cette fenêtre sur un autre groupe ou la fermer, puis réessayer")
+                    throw MCPError("group is open in a Safari window: switch that window to another group or close it, then try again")
                 }
                 if f == nil {
                     f = try FenetreTravail()
@@ -228,7 +228,7 @@ enum Suppressions {
                         .filter { AX.valeur($0, ident: "LibraryItemCellTextField") == titre }
                     return !lignes.isEmpty
                 }
-                guard !lignes.isEmpty else { throw MCPError("groupe « \(titre) » absent de la barre latérale : rien supprimé") }
+                guard !lignes.isEmpty else { throw MCPError("group \"\(titre)\" not in the sidebar: nothing deleted") }
                 // Homonymes possibles : on sélectionne chaque ligne jusqu'à ce que SafariTabs.db confirme que la fenêtre affiche ce groupe
                 // (sinon, pour un titre unique, le nom de la fenêtre « titre — onglet » suffit)
                 let unique = try db.rows("SELECT COUNT(*) FROM bookmarks WHERE type = 1 AND subtype = 0 AND deleted = 0 AND title = ?1", [titre]).first?.first as? Int == 1
@@ -242,33 +242,33 @@ enum Suppressions {
                     }
                     if confirme { break }
                 }
-                guard confirme else { throw MCPError("impossible de confirmer que la fenêtre affiche le groupe \(gid) : rien supprimé") }
+                guard confirme else { throw MCPError("could not confirm the window shows group \(gid): nothing deleted") }
                 try fw.menu("Fichier", "Supprimer le groupe d’onglets", prefixe: true)
                 if AX.attendre(2, { AX.children(fw.ax).contains { AX.role($0) == "AXSheet" } }),
                    let feuille = AX.children(fw.ax).first(where: { AX.role($0) == "AXSheet" }) {
                     guard let b = AX.find(feuille, { AX.role($0) == "AXButton" && AX.str($0, kAXTitleAttribute).hasPrefix("Supprimer") }).first else {
-                        throw MCPError("confirmation inattendue : rien supprimé")
+                        throw MCPError("unexpected confirmation: nothing deleted")
                     }
                     AX.press(b)
                 }
                 guard AX.attendre(5, { (try? db.rows("SELECT 1 FROM bookmarks WHERE id = ?1 AND deleted = 0", [gid]).isEmpty) == true }) else {
-                    throw MCPError("suppression demandée mais le groupe est encore présent")
+                    throw MCPError("deletion requested but the group is still present")
                 }
-                res.append(["groupe_id": gid, "titre": titre, "ok": true])
-            } catch { res.append(["groupe_id": gid, "ok": false, "erreur": "\(error)"]) }
+                res.append(["group_id": gid, "title": titre, "ok": true])
+            } catch { res.append(["group_id": gid, "ok": false, "error": "\(error)"]) }
         }
-        return ["supprimes": res.filter { $0["ok"] as? Bool == true }.count, "resultats": res]
+        return ["deleted": res.filter { $0["ok"] as? Bool == true }.count, "results": res]
     }
 
     // MARK: - Historique
 
     static func historique(_ a: JSON) throws -> Any {
         let urls = a.strings("urls") ?? []
-        let texte = a.nonEmpty("texte")
-        let depuis = try a.nonEmpty("depuis").map { Calendar.current.startOfDay(for: try Dates.parse($0)) }
-        let jusqua = try a.nonEmpty("jusqu_a").map { Calendar.current.startOfDay(for: try Dates.parse($0)) }
+        let texte = a.nonEmpty("text")
+        let depuis = try a.nonEmpty("since").map { Calendar.current.startOfDay(for: try Dates.parse($0)) }
+        let jusqua = try a.nonEmpty("until").map { Calendar.current.startOfDay(for: try Dates.parse($0)) }
         // Plage seule = journées entières : non prise en charge (comportement de Safari non vérifiable sans toucher de vraies données)
-        guard !urls.isEmpty || texte != nil else { throw MCPError("fournir urls ou texte (la plage de jours ne fait que restreindre les pages visées)") }
+        guard !urls.isEmpty || texte != nil else { throw MCPError("provide urls or text (the day range only narrows the targeted pages)") }
         let parJour = depuis != nil || jusqua != nil
         func correspond(_ titre: String, _ url: String) -> Bool {
             if !urls.isEmpty { return urls.contains(url) }
@@ -285,7 +285,7 @@ enum Suppressions {
             outline = AX.find(f.ax) { AX.role($0) == "AXOutline" && AX.ident($0) == "History" }.first
             return champ != nil && outline != nil
         }
-        guard let champ, let outline else { throw MCPError("vue Historique introuvable : rien supprimé") }
+        guard let champ, let outline else { throw MCPError("History view not found: nothing deleted") }
         func lignes() -> [AXUIElement] { AX.attr(outline, kAXRowsAttribute) as? [AXUIElement] ?? [] }
         func chercher(_ s: String) {
             AX.set(champ, kAXFocusedAttribute, kCFBooleanTrue)
@@ -338,7 +338,7 @@ enum Suppressions {
             }
             try passe(cibles)
         }
-        var out: JSON = ["pages_supprimees": total.lignes, "visites_retirees": total.visites]
+        var out: JSON = ["pages_deleted": total.lignes, "visits_removed": total.visites]
         if !pagesSupprimees.isEmpty { out["pages"] = Array(Set(pagesSupprimees)).sorted().prefix(20).map { $0 } }
         return out
     }
@@ -348,7 +348,7 @@ enum Suppressions {
         AX.set(outline, kAXSelectedRowsAttribute, lignes as CFArray)
         AX.set(outline, kAXFocusedAttribute, kCFBooleanTrue)
         guard AX.attendre(1, { (AX.attr(outline, kAXSelectedRowsAttribute) as? [AXUIElement])?.count == lignes.count }) else {
-            throw MCPError("sélection non confirmée : rien supprimé")
+            throw MCPError("selection not confirmed: nothing deleted")
         }
         try f.menu("Édition", "Supprimer")
         Thread.sleep(forTimeInterval: 0.5)
@@ -371,9 +371,9 @@ enum Suppressions {
     }
 }
 
-/// Déclenche la demande d'accès Accessibilité (dialogue macOS) et écrit l'état sur stdout. Appelé par `SafariMCP --accessibilite`.
+/// Déclenche la demande d'accès Accessibilité (dialogue macOS) et écrit l'état sur stdout. Appelé par `SafariMCP --accessibility`.
 func import_ApplicationServices_trusted() {
     let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
     let ok = AXIsProcessTrustedWithOptions(opts)
-    print(ok ? "accessibilite: accordee" : "accessibilite: a activer dans Réglages Système > Confidentialité et sécurité > Accessibilité (SafariMCP)")
+    print(ok ? "accessibility: granted" : "accessibility: to enable in System Settings > Privacy & Security > Accessibility (SafariMCP)")
 }

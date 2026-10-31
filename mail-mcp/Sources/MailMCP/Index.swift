@@ -39,14 +39,14 @@ enum Index {
         return h!
     }
 
-    private static let accesErr = MCPError("index de Mail illisible : donne l'Accès complet au disque à l'app Claude (Réglages Système > Confidentialité et sécurité > Accès complet au disque), puis relance-la.")
+    private static let accesErr = MCPError("Mail's index is not readable: give the Claude app Full Disk Access (System Settings > Privacy & Security > Full Disk Access), then relaunch it.")
 
     /// Requête paramétrée : valeurs Int64, Double, String ou nil
     static func rows(_ sql: String, _ binds: [Any] = []) throws -> [[Any?]] {
         let h = try open()
         var st: OpaquePointer?
         guard sqlite3_prepare_v2(h, sql, -1, &st, nil) == SQLITE_OK else {
-            throw MCPError("index : \(String(cString: sqlite3_errmsg(h)))")
+            throw MCPError("index: \(String(cString: sqlite3_errmsg(h)))")
         }
         defer { sqlite3_finalize(st) }
         for (i, v) in binds.enumerated() {
@@ -110,7 +110,7 @@ enum Index {
 
 /// Référence AppleScript d'une boîte à partir de son identifiant
 func refBoite(_ id: String) throws -> String {
-    guard let slash = id.firstIndex(of: "/") else { throw MCPError("identifiant de boîte invalide : \(id) (attendu \"<compte_id>/<chemin>\", voir boites)") }
+    guard let slash = id.firstIndex(of: "/") else { throw MCPError("invalid mailbox id: \(id) (expected \"<account_id>/<path>\", see list_mailboxes)") }
     let compte = String(id[..<slash]), chemin = String(id[id.index(after: slash)...])
     return compte == "local" ? "mailbox \(AS.q(chemin))" : "mailbox \(AS.q(chemin)) of account id \(AS.q(compte))"
 }

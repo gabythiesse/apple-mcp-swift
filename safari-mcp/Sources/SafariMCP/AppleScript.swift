@@ -6,7 +6,7 @@ import AppKit
 struct TabRef: Hashable {
     let fenetre: Int
     let index: Int
-    var json: JSON { ["fenetre_id": fenetre, "index": index] }
+    var json: JSON { ["window_id": fenetre, "index": index] }
     var spec: String { "tab \(index) of window id \(fenetre)" }
 }
 
@@ -19,10 +19,10 @@ enum AS {
             let t0 = Date()
             defer {
                 let ms = Int(Date().timeIntervalSince(t0) * 1000)
-                if ms > 1000 { log("AppleScript lent (\(ms) ms) : " + source.split(separator: "\n").prefix(3).joined(separator: " ⏎ ")) }
+                if ms > 1000 { log("slow AppleScript (\(ms) ms) : " + source.split(separator: "\n").prefix(3).joined(separator: " ⏎ ")) }
             }
             // Délai court : un Safari bloqué (dialogue, autorisation) renvoie une erreur au lieu de geler l'appel 2 min
-            guard let script = NSAppleScript(source: "with timeout of 20 seconds\n" + source + "\nend timeout") else { result = .failure(MCPError("script invalide")); return }
+            guard let script = NSAppleScript(source: "with timeout of 20 seconds\n" + source + "\nend timeout") else { result = .failure(MCPError("invalid script")); return }
             let d = script.executeAndReturnError(&err)
             if let err { result = .failure(MCPError(message(err))) } else { result = .success(d) }
         }
@@ -32,13 +32,13 @@ enum AS {
 
     private static func message(_ err: NSDictionary) -> String {
         let n = err[NSAppleScript.errorNumber] as? Int ?? 0
-        let m = err[NSAppleScript.errorMessage] as? String ?? "erreur AppleScript"
+        let m = err[NSAppleScript.errorMessage] as? String ?? "AppleScript error"
         if n == -25211 || m.localizedCaseInsensitiveContains("assist") || m.contains("accès d’aide") {
-            return "Accessibilité refusée : autoriser Claude (Réglages Système > Confidentialité et sécurité > Accessibilité)"
+            return "Accessibility denied: allow Claude in System Settings > Privacy & Security > Accessibility"
         }
         switch n {
-        case -1743: return "Automatisation refusée : autoriser Claude à contrôler Safari (Réglages Système > Confidentialité et sécurité > Automatisation)"
-        case -1719, -1728: return "fenêtre ou onglet introuvable (\(m))"
+        case -1743: return "Automation denied: allow Claude to control Safari in System Settings > Privacy & Security > Automation"
+        case -1719, -1728: return "window or tab not found (\(m))"
         default: return m + " (\(n))"
         }
     }
@@ -67,7 +67,7 @@ enum AS {
         end tell
         """)
         let l = d.items
-        guard l.count == 2, let w = l[0].int, let i = l[1].int else { throw MCPError("aucune fenêtre Safari ouverte") }
+        guard l.count == 2, let w = l[0].int, let i = l[1].int else { throw MCPError("no Safari window open") }
         return TabRef(fenetre: w, index: i)
     }
 
@@ -83,20 +83,20 @@ enum AS {
         activerSafari()
         guard AXIsProcessTrusted() else { throw MCPError(FenetreTravail.accessibilite) }
         guard let pid = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Safari").first?.processIdentifier,
-              let barre = AX.attr(AXUIElementCreateApplication(pid), kAXMenuBarAttribute) else { throw MCPError("barre de menus de Safari inaccessible") }
+              let barre = AX.attr(AXUIElementCreateApplication(pid), kAXMenuBarAttribute) else { throw MCPError("Safari menu bar not accessible") }
         // Menu Fichier (2e menu après le menu Safari), puis l'élément dont le titre parle de fenêtre privée (fr / en)
         let menus = AX.children(barre as! AXUIElement)
         let fichier = menus.first { ["Fichier", "File"].contains(AX.str($0, kAXTitleAttribute)) } ?? (menus.count > 2 ? menus[2] : nil)
         guard let f = fichier, let sous = AX.children(f).first,
               let item = AX.children(sous).first(where: { let t = AX.str($0, kAXTitleAttribute).lowercased(); return t.contains("privée") || t.contains("private") })
-        else { throw MCPError("élément de menu « Nouvelle fenêtre privée » introuvable") }
+        else { throw MCPError("\"New Private Window\" menu item not found") }
         AX.press(item)
         for _ in 0..<40 {
             let nouv = Set(try visibleWindowIDs()).subtracting(avant)
             if nouv.count == 1 { return nouv.first! }
             Thread.sleep(forTimeInterval: 0.05)
         }
-        throw MCPError("la fenêtre privée n'a pas pu être repérée")
+        throw MCPError("the private window could not be located")
     }
 
     /// Script JavaScript qui renvoie toujours une chaîne : « § » + résultat, ou « §ERR » + message

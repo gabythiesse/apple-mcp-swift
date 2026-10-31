@@ -1,7 +1,7 @@
 #!/usr/bin/env python3 -I
 """Test de bout en bout du serveur MCP Mail.
 
-Lance le binaire, appelle chaque outil une fois (sauf envoyer : effet externe) sur des données de test marquées
+Lance le binaire, appelle chaque outil une fois (sauf send : effet externe) sur des données de test marquées
 (boîte locale MCP-TEST-<horodatage>, sujets [mcp-test], signature [mcp-test]), journalise durée et taille de
 chaque appel, puis supprime tout par identifiant et vérifie qu'il ne reste rien.
 Les lectures sont toujours filtrées sur la boîte de test ou sur le marqueur [mcp-test] <horodatage>.
@@ -82,11 +82,11 @@ def osa(script, *args):
 
 
 def lire_boite(*boites, **kw):
-    return call("messages", {"boites": list(boites), **kw})["messages"]
+    return call("list_messages", {"mailbox_ids": list(boites), **kw})["messages"]
 
 
 def sujets(ms):
-    return sorted(m["sujet"] for m in ms)
+    return sorted(m["subject"] for m in ms)
 
 
 T0 = time.time()
@@ -107,117 +107,117 @@ try:
     check(rpc("ping")["result"] == {}, "ping")
     tools = {t["name"]: t["annotations"] for t in rpc("tools/list")["result"]["tools"]}
     check(len(tools) == 12, f"tools/list : {len(tools)} outils")
-    check([n for n, a in tools.items() if a["readOnlyHint"]] == ["boites", "messages", "lire_messages"], "readOnly : lectures seulement")
-    check([n for n, a in tools.items() if a["destructiveHint"]] == ["supprimer_messages", "supprimer_boites"], "destructive : supprimer_messages et supprimer_boites")
-    check([n for n, a in tools.items() if a["openWorldHint"]] == ["envoyer"], "openWorld : envoyer seulement")
+    check([n for n, a in tools.items() if a["readOnlyHint"]] == ["list_mailboxes", "list_messages", "read_messages"], "readOnly: reads only")
+    check([n for n, a in tools.items() if a["destructiveHint"]] == ["delete_messages", "delete_mailboxes"], "destructive: delete_messages and delete_mailboxes")
+    check([n for n, a in tools.items() if a["openWorldHint"]] == ["send"], "openWorld: send only")
     check(rpc("methode/inconnue").get("error", {}).get("code") == -32601, "méthode inconnue → -32601")
-    check("outil inconnu" in call("outil_inexistant", expect_error=True), "outil inconnu → isError")
+    check("unknown tool" in call("no_such_tool", expect_error=True), "unknown tool → isError")
 
     print("== Boîtes")
-    r = call("gerer_boites", {"creer": [{"chemin": PREFIX}, {"chemin": f"{PREFIX}/[mcp-test] sous"}]})["resultats"]
+    r = call("manage_mailboxes", {"create": [{"path": PREFIX}, {"path": f"{PREFIX}/[mcp-test] sous"}]})["results"]
     check([x["id"] for x in r if x["ok"]] == [LOC, SOUS], f"boîtes créées : {r}")
-    b = call("boites", {"nom_contient": PREFIX}) or {}
-    check({x["id"] for x in b.get("boites", [])} == {LOC, SOUS}, f"boites filtrées : {b['boites']}")
-    check(SIG in b.get("signatures", []) and any(c["id"] == "local" for c in b["comptes"]), "signature et compte local listés")
+    b = call("list_mailboxes", {"name_contains": PREFIX}) or {}
+    check({x["id"] for x in b.get("mailboxes", [])} == {LOC, SOUS}, f"filtered mailboxes: {b['mailboxes']}")
+    check(SIG in b.get("signatures", []) and any(c["id"] == "local" for c in b["accounts"]), "signature et compte local listés")
 
     print("== Brouillons")
-    res = call("creer_brouillons", {"brouillons": [
-        {"sujet": f"[mcp-test] complet {TS}", "corps": "Corps de test, mot-clé zéphyr.",
-         "a": ["Dest Test <dest-test@example.com>"], "cc": ["copie-test@example.com"], "cci": ["cache-test@example.com"],
-         "pieces_jointes": [PJ], "signature": SIG},
-        {"sujet": f"[mcp-test] simple {TS}", "corps": "Corps simple.", "a": ["dest-test@example.com"]},
-        {"sujet": f"[mcp-test] refusé {TS}", "pieces_jointes": [os.path.join(TMP, "absent.txt")]},
+    res = call("create_drafts", {"drafts": [
+        {"subject": f"[mcp-test] complet {TS}", "body": "Corps de test, mot-clé zéphyr.",
+         "to": ["Dest Test <dest-test@example.com>"], "cc": ["copie-test@example.com"], "bcc": ["cache-test@example.com"],
+         "attachments": [PJ], "signature": SIG},
+        {"subject": f"[mcp-test] simple {TS}", "body": "Corps simple.", "to": ["dest-test@example.com"]},
+        {"subject": f"[mcp-test] refusé {TS}", "attachments": [os.path.join(TMP, "absent.txt")]},
     ]})
-    r0 = res["resultats"]
-    check(res["crees"] == 2 and res["echecs"] == 1, f"2 créés, 1 refusé (pièce jointe absente) : {res['crees']}/{res['echecs']}")
-    check(all("id" in x for x in r0[:2]), f"identifiants des brouillons : {[x.get('id') or x.get('avertissement') for x in r0[:2]]}")
+    r0 = res["results"]
+    check(res["created"] == 2 and res["failed"] == 1, f"2 created, 1 refused (missing attachment): {res['created']}/{res['failed']}")
+    check(all("id" in x for x in r0[:2]), f"identifiants des brouillons : {[x.get('id') or x.get('warning') for x in r0[:2]]}")
     COMPLET, SIMPLE = r0[0].get("id"), r0[1].get("id")
     ids_test |= {COMPLET, SIMPLE}
 
     print("== Déplacer")
-    res = call("deplacer_messages", {"ids": [COMPLET, SIMPLE], "boite": LOC})["resultats"]
-    check(all(x["ok"] and "nouvel_id" in x for x in res), f"déplacés avec nouvel id : {res}")
-    COMPLET, SIMPLE = (x.get("nouvel_id") for x in res)
+    res = call("move_messages", {"ids": [COMPLET, SIMPLE], "mailbox_id": LOC})["results"]
+    check(all(x["ok"] and "new_id" in x for x in res), f"déplacés avec nouvel id : {res}")
+    COMPLET, SIMPLE = (x.get("new_id") for x in res)
     ids_test |= {COMPLET, SIMPLE}
 
     print("== Lister et chercher")
     ms = lire_boite(LOC)
     check(sujets(ms) == sorted([f"[mcp-test] complet {TS}", f"[mcp-test] simple {TS}"]), f"messages de la boîte : {sujets(ms)}")
     c = next((m for m in ms if m["id"] == COMPLET), {})
-    check(c.get("pj") == 1 and c.get("boite") == LOC and "date" in c and "conv" in c, f"champs : {c}")
-    check([m["id"] for m in lire_boite(LOC, texte="complet")] == [COMPLET], "filtre texte (sujet)")
-    check([m["id"] for m in lire_boite(LOC, a="dest-test")] != [], "filtre destinataire")
-    check([m["id"] for m in lire_boite(LOC, avec_pj=True)] == [COMPLET], "filtre avec_pj")
-    check([m["id"] for m in lire_boite(LOC, dans_corps="zéphyr")] == [COMPLET], "recherche dans le corps")
-    check(len(lire_boite(LOC, vue="aujourdhui")) == 2, "vue aujourdhui")
-    page = call("messages", {"boites": [LOC], "limite": 1})
-    check(page["total"] == 2 and len(page["messages"]) == 1 and page.get("tronque"), "limite + total")
+    check(c.get("attachments") == 1 and c.get("mailbox") == LOC and "date" in c and "conv" in c, f"champs : {c}")
+    check([m["id"] for m in lire_boite(LOC, text="complet")] == [COMPLET], "filtre texte (sujet)")
+    check([m["id"] for m in lire_boite(LOC, to="dest-test")] != [], "filtre destinataire")
+    check([m["id"] for m in lire_boite(LOC, has_attachments=True)] == [COMPLET], "has_attachments filter")
+    check([m["id"] for m in lire_boite(LOC, body_contains="zéphyr")] == [COMPLET], "recherche dans le corps")
+    check(len(lire_boite(LOC, view="today")) == 2, "today view")
+    page = call("list_messages", {"mailbox_ids": [LOC], "limit": 1})
+    check(page["total"] == 2 and len(page["messages"]) == 1 and page.get("truncated"), "limit + total")
 
     print("== Lire")
-    lu = call("lire_messages", {"ids": [COMPLET, 999999999], "entetes": True})["messages"]
+    lu = call("read_messages", {"ids": [COMPLET, 999999999], "headers": True})["messages"]
     m = lu[0]
-    check("dest-test@example.com" in m.get("a", []) and m.get("cc") == ["copie-test@example.com"] and m.get("cci") == ["cache-test@example.com"], f"destinataires : {m.get('a')} {m.get('cc')} {m.get('cci')}")
-    check("zéphyr" in m.get("corps", "") and "Signature de test mcp" in m.get("corps", ""), "corps + signature")
-    check(m.get("pj") == [{"nom": "mcp-test.txt", "taille": 20, "type": "text/plain"}], f"pièce jointe : {m.get('pj')}")
-    check("Mime-Version:" in m.get("entetes", ""), "en-têtes")
-    check("erreur" in lu[1], "id inconnu signalé")
+    check("dest-test@example.com" in m.get("to", []) and m.get("cc") == ["copie-test@example.com"] and m.get("bcc") == ["cache-test@example.com"], f"recipients: {m.get('to')} {m.get('cc')} {m.get('bcc')}")
+    check("zéphyr" in m.get("body", "") and "Signature de test mcp" in m.get("body", ""), "body + signature")
+    check(m.get("attachments") == [{"name": "mcp-test.txt", "size": 20, "type": "text/plain"}], f"attachment: {m.get('attachments')}")
+    check("Mime-Version:" in m.get("headers", ""), "headers")
+    check("error" in lu[1], "unknown id reported")
 
     print("== Marquer")
-    res = call("marquer_messages", {"modifications": [
-        {"id": COMPLET, "lu": False, "couleur_drapeau": "bleu", "couleur_fond": "vert"},
-        {"id": SIMPLE, "lu": True, "drapeau": False, "indesirable": False},
-        {"id": COMPLET, "couleur_drapeau": "fuchsia"},
+    res = call("mark_messages", {"changes": [
+        {"id": COMPLET, "read": False, "flag_color": "blue", "background_color": "green"},
+        {"id": SIMPLE, "read": True, "flagged": False, "junk": False},
+        {"id": COMPLET, "flag_color": "fuchsia"},
     ]})
-    check(sorted(res.get("modifies", [])) == sorted(x for x in [COMPLET, SIMPLE] if x) and len(res.get("echecs", [])) == 1, f"2 modifiés, 1 refusé : {res}")
+    check(sorted(res.get("updated", [])) == sorted(x for x in [COMPLET, SIMPLE] if x) and len(res.get("failures", [])) == 1, f"2 updated, 1 refused: {res}")
     time.sleep(0.5)
-    check([m["id"] for m in lire_boite(LOC, vue="non_lus")] == [COMPLET], "vue non_lus")
-    check([m["id"] for m in lire_boite(LOC, vue="drapeau")] == [COMPLET], "vue drapeau")
-    check([m["id"] for m in lire_boite(LOC, non_lu=False)] == [SIMPLE], "filtre non_lu false")
+    check([m["id"] for m in lire_boite(LOC, view="unread")] == [COMPLET], "unread view")
+    check([m["id"] for m in lire_boite(LOC, view="flagged")] == [COMPLET], "flagged view")
+    check([m["id"] for m in lire_boite(LOC, unread=False)] == [SIMPLE], "unread false filter")
 
     print("== Réponse et transfert")
-    res = call("creer_brouillons", {"brouillons": [
-        {"repondre_a": COMPLET, "tous": True, "corps": "Réponse de test mcp."},
-        {"transferer": COMPLET, "a": ["fwd-test@example.com"]},
+    res = call("create_drafts", {"drafts": [
+        {"reply_to_id": COMPLET, "reply_all": True, "body": "Réponse de test mcp."},
+        {"forward_id": COMPLET, "to": ["fwd-test@example.com"]},
     ]})
-    r0 = res["resultats"]
-    check(res["crees"] == 2 and all("id" in x for x in r0), f"réponse + transfert : {r0}")
-    check(r0[0].get("sujet", "").startswith("Re:") and r0[1].get("sujet", "").startswith("Fwd:"), f"sujets : {[x.get('sujet') for x in r0]}")
+    r0 = res["results"]
+    check(res["created"] == 2 and all("id" in x for x in r0), f"réponse + transfert : {r0}")
+    check(r0[0].get("subject", "").startswith("Re:") and r0[1].get("subject", "").startswith("Fwd:"), f"subjects: {[x.get('subject') for x in r0]}")
     REP, FWD = r0[0].get("id"), r0[1].get("id")
     ids_test |= {REP, FWD}
-    rl = {x["id"]: x for x in call("lire_messages", {"ids": [REP, FWD]})["messages"]}
+    rl = {x["id"]: x for x in call("read_messages", {"ids": [REP, FWD]})["messages"]}
     check(set(rl.get(REP, {}).get("cc", [])) == {"dest-test@example.com", "copie-test@example.com"}, f"répondre à tous : cc {rl.get(REP, {}).get('cc')}")
-    check("Réponse de test mcp." in rl.get(REP, {}).get("corps", ""), "corps de la réponse")
-    check(rl.get(FWD, {}).get("a") == ["fwd-test@example.com"] and len(rl.get(FWD, {}).get("pj", [])) == 1, f"transfert avec PJ : {rl.get(FWD, {}).get('a')} {rl.get(FWD, {}).get('pj')}")
+    check("Réponse de test mcp." in rl.get(REP, {}).get("body", ""), "corps de la réponse")
+    check(rl.get(FWD, {}).get("to") == ["fwd-test@example.com"] and len(rl.get(FWD, {}).get("attachments", [])) == 1, f"forward with attachment: {rl.get(FWD, {}).get('to')} {rl.get(FWD, {}).get('attachments')}")
 
     print("== Copier, ranger, supprimer")
-    res = call("deplacer_messages", {"ids": [COMPLET], "boite": SOUS, "copier": True})["resultats"][0]
-    check(res["ok"] and "nouvel_id" in res, f"copie : {res}")
-    COPIE = res.get("nouvel_id")
+    res = call("move_messages", {"ids": [COMPLET], "mailbox_id": SOUS, "copy": True})["results"][0]
+    check(res["ok"] and "new_id" in res, f"copie : {res}")
+    COPIE = res.get("new_id")
     ids_test.add(COPIE)
-    res = call("deplacer_messages", {"ids": [REP, FWD], "boite": SOUS})["resultats"]
-    check(all("nouvel_id" in x for x in res), "brouillons rangés dans la boîte de test")
-    REP, FWD = (x.get("nouvel_id") for x in res)
+    res = call("move_messages", {"ids": [REP, FWD], "mailbox_id": SOUS})["results"]
+    check(all("new_id" in x for x in res), "brouillons rangés dans la boîte de test")
+    REP, FWD = (x.get("new_id") for x in res)
     ids_test |= {REP, FWD}
     check(len(lire_boite(LOC)) == 2, "la copie laisse l'original")
     conv = c.get("conv")
-    check(COMPLET in [m["id"] for m in call("messages", {"boites": [LOC, SOUS], "conversation": conv})["messages"]], "filtre conversation")
-    check(call("supprimer_messages", {"ids": [COPIE]})["supprimes"] == [COPIE], "copie supprimée (corbeille)")
+    check(COMPLET in [m["id"] for m in call("list_messages", {"mailbox_ids": [LOC, SOUS], "conversation": conv})["messages"]], "filtre conversation")
+    check(call("delete_messages", {"ids": [COPIE]})["deleted"] == [COPIE], "copie supprimée (corbeille)")
     time.sleep(0.5)
     check(COPIE not in [m["id"] for m in lire_boite(SOUS)], "la copie a quitté la boîte")
 
     print("== Pièces jointes")
-    res = call("enregistrer_pieces_jointes", {"ids": [COMPLET], "dossier": TMP + "/sortie"})["resultats"][0]
-    f = (res.get("fichiers") or [""])[0]
+    res = call("save_attachments", {"ids": [COMPLET], "folder": TMP + "/sortie"})["results"][0]
+    f = (res.get("files") or [""])[0]
     check(os.path.basename(f) == "mcp-test.txt" and open(f).read() == "contenu de test mcp\n", f"PJ enregistrée : {res}")
 
     print("== Vues et divers")
-    check(lire_boite(LOC, vue="sans_reponse") == [], "vue sans_reponse (boîte de test : aucun envoyé)")
-    call("messages", {"boites": [LOC], "vue": "selection"})
-    check(True, "vue selection (filtrée sur la boîte de test)")
-    check(len(lire_boite(LOC, SOUS, vue="recents")) == 4, "vue recents")
-    r = call("gerer_boites", {"renommer": [{"id": SOUS, "nom": "[mcp-test] renommée"}]})["resultats"][0]
+    check(lire_boite(LOC, view="no_reply") == [], "no_reply view (test mailbox: nothing sent)")
+    call("list_messages", {"mailbox_ids": [LOC], "view": "selection"})
+    check(True, "selection view (filtered on the test mailbox)")
+    check(len(lire_boite(LOC, SOUS, view="recent")) == 4, "recent view")
+    r = call("manage_mailboxes", {"rename": [{"id": SOUS, "name": "[mcp-test] renommée"}]})["results"][0]
     check(r["ok"] and r["id"] == RENOMMEE, f"boîte renommée : {r}")
-    check(call("relever")["ok"] is True, "relever")
+    check(call("fetch_mail")["ok"] is True, "fetch_mail")
 except SystemExit:
     pass
 finally:
@@ -225,12 +225,12 @@ finally:
     # Tout ce qui porte le marqueur, quel que soit le passage (corbeilles comprises), regroupé dans une boîte de test,
     # puis boîtes de test supprimées par le menu de Mail (AppleScript ne sait pas supprimer une boîte).
     def test_msgs():
-        r = call("messages", {"texte": "[mcp-test]", "limite": 500})
-        return [m for m in r.get("messages", []) if "[mcp-test]" in m["sujet"]] if isinstance(r, dict) else []
+        r = call("list_messages", {"text": "[mcp-test]", "limit": 500})
+        return [m for m in r.get("messages", []) if "[mcp-test]" in m["subject"]] if isinstance(r, dict) else []
 
     def test_boites():
-        r = call("boites", {"nom_contient": "MCP-TEST-"})
-        return [b["id"] for b in r.get("boites", []) if b["id"].startswith("local/MCP-TEST-")] if isinstance(r, dict) else []
+        r = call("list_mailboxes", {"name_contains": "MCP-TEST-"})
+        return [b["id"] for b in r.get("mailboxes", []) if b["id"].startswith("local/MCP-TEST-")] if isinstance(r, dict) else []
 
     # 3 passes : un brouillon iCloud déplacé juste après son enregistrement peut réapparaître dans Brouillons (synchro)
     for passe in range(3):
@@ -238,12 +238,12 @@ finally:
             msgs, boites = test_msgs(), test_boites()
             if not msgs and not boites:
                 break
-            dehors = [m["id"] for m in msgs if not m["boite"].startswith("local/MCP-TEST-")]
+            dehors = [m["id"] for m in msgs if not m["mailbox"].startswith("local/MCP-TEST-")]
             if dehors:
                 racine = next((b for b in boites if b.count("/") == 1), None)
                 if racine is None:
-                    racine = call("gerer_boites", {"creer": [{"chemin": f"{PREFIX}-nettoyage{passe}"}]})["resultats"][0]["id"]
-                call("deplacer_messages", {"ids": dehors, "boite": racine})
+                    racine = call("manage_mailboxes", {"create": [{"path": f"{PREFIX}-nettoyage{passe}"}]})["results"][0]["id"]
+                call("move_messages", {"ids": dehors, "mailbox_id": racine})
                 time.sleep(1)
             for b in sorted(test_boites(), key=lambda x: -x.count("/")):
                 chemin = b[len("local/"):]
@@ -258,7 +258,7 @@ finally:
         shutil.rmtree(d, ignore_errors=True)
     time.sleep(2)
     restants = test_msgs()
-    check(restants == [], f"0 message de test restant ({[(m['id'], m['boite']) for m in restants]})")
+    check(restants == [], f"0 message de test restant ({[(m['id'], m['mailbox']) for m in restants]})")
     check(test_boites() == [], "0 boîte de test restante")
     check(osa('tell application "Mail" to count (signatures whose name starts with "[mcp-test]")') == "0", "0 signature de test restante")
     check(not glob.glob(os.path.join(CONTENEUR, "mcp-mail-*")) and not glob.glob(os.path.join(ROOT, "tests", "tmp-*")), "0 fichier temporaire")

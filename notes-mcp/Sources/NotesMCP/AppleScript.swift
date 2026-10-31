@@ -88,16 +88,16 @@ enum AS {
     /// Exécute un script (corps placé dans `tell application "Notes"`) sur le thread principal
     static func run(_ body: String, timeout: Int = 120) throws -> Any {
         let src = prelude + "with timeout of \(timeout) seconds\ntell application \"Notes\"\n" + body + "\nend tell\nend timeout\n"
-        var result: Result<Any, Error> = .failure(MCPError("script non exécuté"))
+        var result: Result<Any, Error> = .failure(MCPError("script not executed"))
         let work = {
             var err: NSDictionary?
-            guard let script = NSAppleScript(source: src) else { result = .failure(MCPError("script invalide")); return }
+            guard let script = NSAppleScript(source: src) else { result = .failure(MCPError("invalid script")); return }
             let d = script.executeAndReturnError(&err)
             if let err {
                 let num = err[NSAppleScript.errorNumber] as? Int ?? 0
-                let msg = err[NSAppleScript.errorMessage] as? String ?? "erreur AppleScript"
+                let msg = err[NSAppleScript.errorMessage] as? String ?? "AppleScript error"
                 if num == -1743 {
-                    result = .failure(MCPError("macOS refuse le pilotage de Notes : autorise-le dans Réglages Système > Confidentialité et sécurité > Automatisation (-1743)"))
+                    result = .failure(MCPError("macOS refuses control of Notes: allow it in System Settings > Privacy & Security > Automation (-1743)"))
                 } else {
                     result = .failure(MCPError("\(msg) (\(num))"))
                 }
@@ -162,9 +162,9 @@ enum IDs {
         let s = s.trimmingCharacters(in: .whitespaces)
         if s.hasPrefix("x-coredata://") { return s }
         guard let pre = s.first, let ent = entities.first(where: { $0.value == String(pre) })?.key,
-              s.count > 1, s.dropFirst().allSatisfy(\.isNumber) else { throw MCPError("identifiant invalide : \(s)") }
+              s.count > 1, s.dropFirst().allSatisfy(\.isNumber) else { throw MCPError("invalid id: \(s)") }
         if store == nil { _ = short(try AS.run("return id of default account") as? String ?? "") }
-        guard let st = store else { throw MCPError("magasin Notes introuvable") }
+        guard let st = store else { throw MCPError("Notes store not found") }
         return "x-coredata://\(st)/\(ent)/p\(s.dropFirst())"
     }
 
