@@ -11,10 +11,13 @@ let serveurs: [String: String] = [
     "mail": "mail-mcp/bin/MailMCP", "notes": "notes-mcp/bin/NotesMCP",
     "contacts": "contacts-mcp/bin/ContactsMCP", "safari": "safari-mcp/bin/SafariMCP",
 ]
-guard CommandLine.arguments.count >= 2, let relatif = serveurs[CommandLine.arguments[1]] else {
+let commande = CommandLine.arguments.count >= 2 ? CommandLine.arguments[1] : ""
+guard commande == "permissions" || serveurs[commande] != nil else {
     fputs("usage: AppleMCP <\(serveurs.keys.sorted().joined(separator: "|"))> [server options]\n", stderr)
+    fputs("       AppleMCP permissions [--request]   (check, or request, every macOS permission: docs/permissions.md)\n", stderr)
     exit(64)
 }
+let relatif = serveurs[commande] ?? ""
 let exe = Bundle.main.executablePath ?? CommandLine.arguments[0]
 let racine = URL(fileURLWithPath: exe).resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
 let cible = racine.appendingPathComponent(relatif).path
@@ -46,6 +49,8 @@ if ProcessInfo.processInfo.environment["APPLE_MCP_RESPONSABLE"] == nil {
     if let pid = lancer(exe, Array(CommandLine.arguments.dropFirst()), disclaim: true) { attendre(pid) }
     // relaunch failed: keep going in this process (responsibility inherited from the client)
 }
+
+if commande == "permissions" { exit(Permissions.run(request: CommandLine.arguments.contains("--request"))) }
 
 // 2. Launch the server as an ordinary child: it inherits the launcher's responsibility and does NOT relaunch itself
 for m in ["RAPPELS", "CALENDRIER", "MAIL", "NOTES", "CONTACTS", "SAFARI"] { setenv("\(m)_MCP_RESPONSABLE", "1", 1) }
