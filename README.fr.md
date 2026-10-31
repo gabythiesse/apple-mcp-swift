@@ -24,15 +24,23 @@ cd apple-mcp-swift
 ./installer.command
 ```
 
-Ou double-clic sur `installer.command` dans le Finder. Quelques minutes la première fois, en 7 étapes :
+Ou double-clic sur `installer.command` dans le Finder. **Toutes les autorisations une fois, plus jamais** : l'installeur demande toutes les autorisations macOS pendant que tu es devant le Mac, et ensuite aucune fenêtre n'apparaît plus, même quand tu utilises Claude depuis ton téléphone. Quelques minutes la première fois, en 5 étapes :
 
-1. Crée une identité de signature locale « Apple MCP » dans un trousseau dédié.
+1. Crée une identité de signature locale « Apple MCP » dans un trousseau dédié, ou la réutilise (une nouvelle identité ferait redemander toutes les autorisations : elle ne change jamais sans ton accord).
 2. Compile les six serveurs et le lanceur, signés avec cette identité.
 3. Demande à macOS de faire confiance au certificat : **ton mot de passe de session, une fois**.
 4. Déclare les six serveurs dans l'app Claude et Codex s'ils sont installés (ta config est sauvegardée avant).
-5. Appelle chaque serveur une fois : **clique « Autoriser »** à chaque fenêtre `AppleMCP` (Rappels, Calendrier, Contacts, Automatisation).
-6. Ouvre **Accès complet au disque** : active `AppleMCP` (Mail lit son index local).
-7. Ouvre **Accessibilité** : active `AppleMCP` (fenêtres privées et suppressions dans Safari).
+5. Demande **toutes les autorisations d'un coup**, toutes au seul nom `AppleMCP` : clique **Autoriser / OK** à chaque fenêtre (Rappels, Calendrier, Contacts, Automatisation de Mail, Notes, Safari, Contacts et System Events), puis active `AppleMCP` dans **Accessibilité** et **Accès complet au disque** quand Réglages Système s'ouvre (l'installeur attend et détecte l'interrupteur).
+
+Il finit par un tableau ✓/✗ et ne dit « Done » que si tout est ✓. Sinon il dit exactement quel interrupteur activer ; relance-le, il ne refait que ce qui manque.
+
+Avant de partir de chez toi, vérifie sans rien modifier :
+
+```bash
+./installer.command --check
+```
+
+La liste complète des autorisations, et le code qui a besoin de chacune : [docs/permissions.md](docs/permissions.md) (en anglais).
 
 Quitte et relance Claude, puis essaie : *« Montre-moi mes rappels du jour. »*
 
@@ -48,6 +56,10 @@ Pour un autre client MCP : commande `bin/AppleMCP`, argument = nom du serveur (`
 - **Signature locale stable.** macOS lie les autorisations à « identifiant + certificat ». Avec un certificat local, les recompilations gardent leurs autorisations.
 - **Une voie d'accès par fonction.** Frameworks publics quand ils suffisent, AppleScript in-process sinon, frameworks privés pour ce qu'Apple n'expose pas, SQLite en lecture seule pour la recherche rapide.
 - **`sondes/`** contient les petites expériences derrière chaque choix technique, y compris les résultats négatifs.
+
+## Développement
+
+**Règle des autorisations.** Un outil qui touche un nouveau service (une autre app par Apple Events, un nouveau dossier protégé, un framework avec sa propre autorisation) doit être ajouté dans le même changement à [docs/permissions.md](docs/permissions.md) et à `Permissions.services` dans `launcher/Sources/AppleMCP/Permissions.swift`, pour que l'installeur le demande et que `--check` le teste. Une fenêtre d'autorisation après l'installation est un bug.
 
 ## Limites
 

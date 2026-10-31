@@ -24,15 +24,23 @@ cd apple-mcp-swift
 ./installer.command
 ```
 
-Or double-click `installer.command` in Finder. It takes a few minutes the first time and does 7 steps:
+Or double-click `installer.command` in Finder. **All permissions once, never again**: the installer asks for every macOS permission the tools need while you are at the Mac, and after that no window ever appears, even when you use Claude from your phone. A few minutes the first time, 5 steps:
 
-1. Creates a local code-signing identity "Apple MCP" in a dedicated keychain.
+1. Creates a local code-signing identity "Apple MCP" in a dedicated keychain, or reuses it (a new one would make macOS ask every permission again, so it never changes without asking you).
 2. Builds the six servers and the launcher, signed with that identity.
 3. Asks macOS to trust the certificate: **your login password, once**.
 4. Registers the six servers in the Claude desktop app and Codex, if they are installed (your config is backed up first).
-5. Calls each server once: **click "Allow"** on each `AppleMCP` prompt (Reminders, Calendar, Contacts, Automation).
-6. Opens **Full Disk Access**: turn on `AppleMCP` (Mail reads its local index).
-7. Opens **Accessibility**: turn on `AppleMCP` (Safari private windows and deletions).
+5. Asks for **every permission at once**, all under the single name `AppleMCP`: click **Allow / OK** on each prompt (Reminders, Calendar, Contacts, Automation of Mail, Notes, Safari, Contacts and System Events), then turn on `AppleMCP` in **Accessibility** and **Full Disk Access** when System Settings opens (the installer waits and detects the switch).
+
+It ends with a ✓/✗ table and says "Done" only when every line is ✓. Otherwise it says exactly which switch to turn on; run it again and it only redoes what is missing.
+
+Before leaving home, check without changing anything:
+
+```bash
+./installer.command --check
+```
+
+The full list of permissions, and the code that needs each one: [docs/permissions.md](docs/permissions.md).
 
 Then quit and reopen Claude, and try: *"Show me today's reminders."*
 
@@ -153,6 +161,8 @@ flowchart LR
 ./build.sh --all                                  # everything
 python3 -I reminders-mcp/tests/smoke.py bin/...   # smoke test (real data, see above)
 ```
+
+**Permission rule.** A tool that reaches a new service (another app through Apple Events, a new protected folder, a new framework with its own permission) must be added in the same change to [docs/permissions.md](docs/permissions.md) and to `Permissions.services` in `launcher/Sources/AppleMCP/Permissions.swift`, so the installer asks for it and `--check` tests it. A permission prompt after installation is a bug.
 
 Each server has the same layout: `Protocol.swift` (MCP), `Tools.swift` (names, descriptions, schemas), `Handlers.swift` (logic), plus the access layer (`EventKit`, `AppleScript`, `Index`, `Private`). Some code comments are still in French.
 
