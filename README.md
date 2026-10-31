@@ -1,4 +1,4 @@
-# apple-mcp-swift
+# apple-mcp-swift — MCP servers for Apple Reminders, Calendar, Mail, Notes, Contacts & Safari
 
 **Native Swift MCP servers for Reminders, Calendar, Mail, Notes, Contacts and Safari. Zero dependencies. One macOS permission.**
 
@@ -155,6 +155,23 @@ python3 -I reminders-mcp/tests/smoke.py bin/...   # smoke test (real data, see a
 ```
 
 Each server has the same layout: `Protocol.swift` (MCP), `Tools.swift` (names, descriptions, schemas), `Handlers.swift` (logic), plus the access layer (`EventKit`, `AppleScript`, `Index`, `Private`). Some code comments are still in French.
+
+## FAQ
+
+### How do I connect Claude to Apple Reminders on my Mac?
+Run `./installer.command` (see [Install](#install)). It registers the servers in the Claude desktop app and Codex, then you ask Claude in plain language: *"Remind me to call the bank tomorrow at 9."*
+
+### Can Claude read and send Apple Mail?
+Yes. `list_messages` and `read_messages` search Mail's local index, `create_drafts` prepares emails without sending them, and only `send` actually sends one.
+
+### Does it work with MCP clients other than Claude?
+Yes. Any MCP client that speaks stdio can call the `AppleMCP` launcher (see [Other MCP clients](#other-mcp-clients)).
+
+### How is it different from other Apple MCP servers?
+It is native Swift with no Node or Python runtime, it uses private frameworks for features AppleScript can't reach (Reminders subtasks, sections, tags and images), and every server runs behind one signed launcher, so macOS shows a single `AppleMCP` permission.
+
+### Why does macOS only ask for one permission?
+The launcher is the responsible process for all six servers and keeps a stable local signature, so permissions survive rebuilds (see [How it works](#how-it-works)).
 
 ## License
 
