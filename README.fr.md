@@ -1,4 +1,4 @@
-# apple-mcp-swift
+# apple-mcp-swift — serveurs MCP pour Rappels, Calendrier, Mail, Notes, Contacts et Safari
 
 **Six serveurs MCP natifs en Swift pour piloter Rappels, Calendrier, Mail, Notes, Contacts et Safari. Zéro dépendance. Une seule autorisation macOS.**
 
@@ -55,6 +55,20 @@ Pour un autre client MCP : commande `bin/AppleMCP`, argument = nom du serveur (`
 - **Testé sur macOS 26.5 uniquement**, puce Apple uniquement. Compilation sur place obligatoire.
 - **Certaines suppressions pilotent les menus de l'app** et ne marchent pour l'instant que sur un Mac **en français** : `delete_mailboxes` (Mail), et dans Safari `delete_history`, `delete_tab_groups`, `delete_from_reading_list`.
 - **Les tests touchent tes vraies données** : `*/tests/smoke.py` crée des éléments `MCP-TEST-<horodatage>` dans les vraies apps et vérifie qu'il ne reste rien. Ils n'envoient jamais de mail ni d'invitation.
+
+## FAQ
+
+### Comment connecter Claude à Rappels sur Mac ?
+Lance `./installer.command` (voir [Installation](#installation)). Il déclare les serveurs dans l'app Claude et Codex, puis tu demandes à Claude en langage courant : *« Rappelle-moi d'appeler la banque demain à 9 h. »*
+
+### Claude peut-il lire et envoyer des mails avec Apple Mail ?
+Oui. `list_messages` et `read_messages` cherchent dans l'index local de Mail, `create_drafts` prépare des mails sans les envoyer, et seul `send` envoie vraiment.
+
+### Ça marche avec d'autres clients MCP que Claude ?
+Oui. Tout client MCP en stdio peut appeler le lanceur `AppleMCP` (voir la [version anglaise](README.md#other-mcp-clients)).
+
+### Quelle différence avec les autres serveurs MCP pour Apple ?
+Swift natif sans Node ni Python, frameworks privés pour ce qu'AppleScript n'atteint pas (sous-tâches, sections, tags et images de Rappels), et un seul lanceur signé : macOS n'affiche qu'une autorisation `AppleMCP`.
 
 ## Licence
 
