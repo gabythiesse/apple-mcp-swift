@@ -33,7 +33,8 @@ which is exactly what must never happen remotely. Full Disk Access grants all of
 instead of a series of prompts.
 
 Not a macOS permission (no prompt, the tool just returns an error): Safari's *Develop > Allow JavaScript from Apple Events*,
-needed by `read_page`, `run_js` and back/forward in `navigate`.
+needed by `read_page`, `run_js`, `capture_page` and back/forward in `navigate`.
+`capture_page` needs no Screen Recording permission: the tab's content is redrawn by an off-screen WebKit view.
 
 ## Onboarding and check
 

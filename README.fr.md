@@ -52,7 +52,7 @@ Pour un autre client MCP : commande `bin/AppleMCP`, argument = nom du serveur (`
 
 ## Serveurs et outils
 
-77 outils au total : Rappels (14), Calendrier (11), Mail (12), Notes (13), Contacts (13), Safari (14). La liste détaillée est dans le [README anglais](README.md#servers-and-tools).
+78 outils au total : Rappels (14), Calendrier (11), Mail (12), Notes (13), Contacts (13), Safari (15). La liste détaillée est dans le [README anglais](README.md#servers-and-tools).
 
 ## Comment ça marche
 

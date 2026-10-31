@@ -2,7 +2,7 @@
 
 **Native Swift MCP servers for Reminders, Calendar, Mail, Notes, Contacts and Safari. Zero dependencies. Every macOS permission granted once, at install: then drive your Mac from your phone.**
 
-![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![77 tools](https://img.shields.io/badge/tools-77-blue) ![MIT](https://img.shields.io/badge/license-MIT-green)
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![78 tools](https://img.shields.io/badge/tools-78-blue) ![MIT](https://img.shields.io/badge/license-MIT-green)
 
 [Version française](README.fr.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
@@ -124,12 +124,13 @@ Legend: 🔍 read-only · ✏️ writes · ⚠️ destructive
 | 🔍 `find_duplicates` · ⚠️ `merge_contacts` | Find and merge duplicates |
 | ✏️ `export_vcard` · `import_vcard` | vCard files |
 
-### Safari (14)
+### Safari (15)
 | Tool | What it does |
 |---|---|
 | 🔍 `list_tabs` · `read_page` | Windows, tabs, page text, links or HTML |
 | ✏️ `open` · `navigate` · ⚠️ `close` | Open (also private windows), go, reload, back, close |
 | ✏️ `run_js` | Run JavaScript in a tab |
+| ✏️ `capture_page` | Save a PNG/JPEG of a tab (visible part or whole page), e.g. to attach to a reminder. No Screen Recording permission: the page is redrawn off screen |
 | 🔍 `list_reading_list` · ✏️ `add_to_reading_list` · ⚠️ `delete_from_reading_list` | Reading List |
 | 🔍 `list_bookmarks` · `list_history` · `list_tab_groups` | Bookmarks, history, tab groups |
 | ⚠️ `delete_history` · `delete_tab_groups` | Delete history pages, tab groups |

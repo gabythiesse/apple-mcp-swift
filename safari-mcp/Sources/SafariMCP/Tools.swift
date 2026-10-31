@@ -56,6 +56,11 @@ enum Tools {
         ["name": "run_js",
          "description": "Runs synchronous JavaScript in one or more tabs and returns the result (objects converted to JSON). A single expression is enough; otherwise a function body with return. For clicking, filling in, extracting.",
          "inputSchema": obj(["script": s("JavaScript code"), "tabs": refs], ["script"])],
+        ["name": "capture_page",
+         "description": "Saves an image (PNG, or JPEG if path ends in .jpg) of a tab: what is visible, or the whole page with full_page. For keeping a page as proof or attaching it to a reminder or a note. The page is redrawn off screen from the tab's current content (no Screen Recording permission; works with the Mac locked); an image from another site that requires a login may be missing. Returns the file path.",
+         "inputSchema": obj(["window_id": n("Window (active tab of the front window if omitted)"), "index": n("Tab index in the window"),
+                             "full_page": b("Whole page instead of the visible part (capped at 20000 px tall)"),
+                             "path": s("Absolute path of the image file (default: ~/Pictures/Safari captures/<title> <date>.png)")])],
         ["name": "list_reading_list",
          "description": "Reads the Reading List (title, URL, date added, read), newest first. 20 items by default.",
          "inputSchema": obj(["text": s("Filter on title, URL or preview"), "unread_only": b("Only unread items"),
@@ -96,6 +101,7 @@ enum Tools {
         case "close": return try Handlers.fermer(a)
         case "read_page": return try Handlers.lirePage(a)
         case "run_js": return try Handlers.executerJS(a)
+        case "capture_page": return try Capture.capturer(a)
         case "list_reading_list": return try Handlers.listeDeLecture(a)
         case "add_to_reading_list": return try Handlers.ajouterListeDeLecture(a)
         case "list_bookmarks": return try Handlers.favoris(a)

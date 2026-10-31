@@ -34,13 +34,13 @@ private let recurrence = obj([
 private let champs: JSON = [
     "title": s("Title"),
     "notes": s("Notes (\"\" to clear)"),
-    "due": s("Due date: \(dateHelp). With a time, an alert is set at the due time, as in the app. \"\" to clear"),
+    "due": s("Due date: the real deadline, \(dateHelp). It puts the reminder in Today and Scheduled, and marks it overdue once passed. With a time, an alert is set at the due time, as in the app; with a day only, the app notifies that day at the time set in its settings (9:00 by default). For an earlier heads-up, keep due on the deadline and add alarms. \"\" to clear"),
     "start": s("Start date: \(dateHelp). \"\" to clear"),
     "priority": e(["high", "medium", "low", "none"], "Priority"),
     "flagged": b("Flag"),
     "url": s("URL shown in the reminder (\"\" to remove)"),
     "section_id": s("Section of the list (see the list_sections tool; \"\" to take it out of its section)"),
-    "alarms": arr(alarme, "Alerts (replaces all existing alerts; [] to remove them all)"),
+    "alarms": arr(alarme, "Extra alerts, on top of the one at the due date: e.g. a heads-up a few days before, to get started in time. Never move due to the heads-up date. Replaces all existing alerts; [] to remove them all"),
     "recurrence": ["description": "Recurrence (null to remove it). Requires a due date.", "anyOf": [recurrence, ["type": "null"]]],
 ]
 
@@ -134,7 +134,7 @@ enum Tools {
          "description": "Permanently deletes reminders by ID (no trash). Deleting a parent also deletes its subtasks.",
          "inputSchema": obj(["ids": arr(s("ID"), "Reminders to delete")], ["ids"])],
         ["name": "add_image",
-         "description": "Attaches an image (local PNG, JPEG, HEIC… file) to a reminder.",
+         "description": "Attaches an image (local PNG, JPEG, HEIC… file) to a reminder. For a picture of a web page, save it first with the Safari server's capture_page tool.",
          "inputSchema": obj(["id": s("Reminder ID"), "path": s("Absolute path of the image file")], ["id", "path"])],
         ["name": "list_tags",
          "description": "Lists the tags in use with the number of reminders carrying each (incomplete by default).",
