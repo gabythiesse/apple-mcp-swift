@@ -8,6 +8,12 @@ struct MCPError: Error, CustomStringConvertible {
     init(_ description: String) { self.description = description }
 }
 
+/// Échec qui porte une réponse structurée (act : étapes réussies, erreur, snapshot de la zone)
+struct MCPFailure: Error, CustomStringConvertible {
+    let payload: JSON
+    var description: String { jsonText(payload) }
+}
+
 enum Stdio {
     private static let lock = NSLock()
 
@@ -70,6 +76,8 @@ enum Server {
             do {
                 let value = try Tools.call(tool, args)
                 return result(id, ["content": [["type": "text", "text": jsonText(value)]]])
+            } catch let f as MCPFailure {
+                return result(id, ["content": [["type": "text", "text": jsonText(f.payload)]], "isError": true])
             } catch {
                 return result(id, ["content": [["type": "text", "text": "Error: \(error)"]], "isError": true])
             }

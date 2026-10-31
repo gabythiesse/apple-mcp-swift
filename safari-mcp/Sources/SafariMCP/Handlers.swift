@@ -476,6 +476,334 @@ enum Handlers {
         }
     }
 
+    // MARK: - Action (click, type, press, select, check, hover, scroll, wait, act)
+
+    static let cibleCles = ["ref", "selector", "text", "role", "label", "near", "within", "x", "y"]
+
+    /// Arguments d'une opération de page : cible, options, politique des dialogues
+    private static func argsPage(_ a: JSON, _ cles: [String]) -> JSON {
+        var o = passer(a, cibleCles + cles)
+        if a.has("accept_dialogs") || a.has("prompt_text") {
+            var d: JSON = ["accept": a.bool("accept_dialogs") ?? true]
+            if let p = a.string("prompt_text") { d["prompt"] = p }
+            o["dialogs"] = d
+        }
+        return o
+    }
+
+    /// Opération de page qui attend sa cible (jusqu'à timeout) et survit à une navigation déclenchée par l'action
+    private static func actionPage(_ op: String, _ args: JSON, _ t: TabRef, timeout: TimeInterval) throws -> JSON {
+        let fin = Date().addingTimeInterval(timeout)
+        let avant = (try? AE.js("location.href", in: t, timeout: 2)) ?? nil
+        while true {
+            do {
+                let o = try Page.call(op, args, in: t, timeout: max(3, timeout))
+                if o["navigating"] as? Bool == true { var n = try apresNavigation(t, avant); n["clicked"] = args["ref"] ?? args["text"] ?? args["selector"]; return n }
+                return o
+            }
+            catch is PageNavigated { return try apresNavigation(t, avant) }
+            catch let e as MCPError {
+                let absent = e.description.hasPrefix("no element") || e.description.hasPrefix("near: no visible") || e.description.hasPrefix("nothing at")
+                if absent && Date() < fin { Thread.sleep(forTimeInterval: 0.05); continue }
+                // page remplacée pendant l'appel : la bibliothèque a été réinjectée dans la nouvelle page
+                if e.description.contains("watch lost") { return try apresNavigation(t, avant) }
+                throw e
+            }
+        }
+    }
+
+    private static func apresNavigation(_ t: TabRef, _ avant: String?) throws -> JSON {
+        let e = AS.waitLoaded([t], before: avant.map { [t: $0] } ?? [:], timeout: 15)[t]
+        var o: JSON = ["navigated": true, "url": e?.url ?? "", "title": e?.titre ?? ""]
+        if e?.pret == false { o["loaded"] = false }
+        return o
+    }
+
+    /// Réponse compacte : on retire les compteurs internes, on signale une action sans effet
+    private static func compact(_ o: JSON, level: String? = nil) -> JSON {
+        var r = o
+        let reagi = r.removeValue(forKey: "reacted") as? Bool
+        r.removeValue(forKey: "mutations")
+        if reagi == false && r["navigated"] == nil { r["no_effect"] = true }
+        if let level, level != "dom" { r["level"] = level }
+        // une même ligne d'élément n'est donnée qu'une fois : l'état après l'action remplace l'état avant
+        func refDe(_ k: String) -> Substring? { (r[k] as? String)?.split(separator: " ").first }
+        for principal in ["clicked", "field", "hovered"] where r[principal] != nil {
+            if let t = refDe("target"), t == refDe(principal) { r[principal] = r.removeValue(forKey: "target") }
+            if let f = refDe("focus"), f == refDe(principal) { r.removeValue(forKey: "focus") }
+        }
+        if let t = refDe("target"), t == refDe("focus") { r.removeValue(forKey: "focus") }
+        return r
+    }
+
+    private static func mode(_ a: JSON) throws -> String {
+        let m = a.nonEmpty("mode") ?? "auto"
+        guard ["auto", "dom", "ax", "native"].contains(m) else { throw MCPError("unknown mode: \(m) (auto, dom, ax, native)") }
+        return m
+    }
+
+    private static func delai(_ a: JSON, _ defaut: Double) -> TimeInterval { max(0.05, (a.double("timeout") ?? defaut) / 1000) }
+
+    static func cliquer(_ a: JSON) throws -> Any { try cliquer(a, onglet(a)) }
+    static func cliquer(_ a: JSON, _ t: TabRef) throws -> JSON {
+        let m = try mode(a)
+        let args = argsPage(a, ["button", "double", "modifiers", "expect", "expect_timeout", "force"])
+        let attente = delai(a, 5000)
+        // Niveau 1 : séquence complète d'événements DOM
+        if m == "auto" || m == "dom" {
+            let o = try actionPage("click", args, t, timeout: attente)
+            if m == "dom" || o["reacted"] as? Bool != false || o["navigated"] != nil { return compact(o) }
+            // escalade impossible écran verrouillé : le résultat DOM, avec la raison
+            if Native.ecranVerrouille { var r = compact(o); r["escalation"] = Native.verrouille; return r }
+        }
+        // Niveaux 2 et 3 : la page n'a pas réagi (ou mode demandé) ; l'élément est relocalisé (il a pu bouger)
+        let niveaux = m == "auto" ? ["ax", "native"] : [m]
+        var dernier: JSON = [:]
+        for niveau in niveaux {
+            let loc = try actionPage("locate", args, t, timeout: attente)
+            if loc["navigated"] != nil { return loc }
+            guard let x = loc["x"] as? Double, let y = loc["y"] as? Double, let w = loc["watch"] as? Int else { throw MCPError("could not locate the target") }
+            let prep = try Native.preparer(t)
+            let p = Native.ecran(prep.web, x: x, y: y, vw: loc["vw"] as? Double ?? 0)
+            var info: JSON = [:]
+            if niveau == "ax" {
+                if let presse = Native.axPress(at: p) { info["ax_element"] = presse } else { info["ax_element"] = "none pressable at this point" }
+            } else {
+                try Native.activer()
+                let bouton = a.nonEmpty("button") ?? "left"
+                Native.click(at: p, button: bouton, count: a.bool("double") == true ? 2 : 1, modifiers: a.strings("modifiers") ?? [])
+                info["activated_safari"] = true
+            }
+            if prep.tabSwitched { info["tab_activated"] = true }
+            var o: JSON
+            do {
+                o = try Page.call("settle", ["watch": w, "expect": args["expect"] ?? NSNull(), "expect_timeout": args["expect_timeout"] ?? 2000], in: t, timeout: 6)
+                if o["navigating"] as? Bool == true { o = try apresNavigation(t, nil) }
+            }
+            catch is PageNavigated { o = try apresNavigation(t, nil) }
+            catch let e as MCPError where e.description.contains("watch lost") { o = try apresNavigation(t, nil) }
+            o["clicked"] = loc["target"]
+            o.merge(info) { a, _ in a }
+            dernier = compact(o, level: niveau)
+            if o["reacted"] as? Bool != false || o["navigated"] != nil { return dernier }
+        }
+        return dernier
+    }
+
+    static func taper(_ a: JSON) throws -> Any { try taper(a, onglet(a)) }
+    static func taper(_ a: JSON, _ t: TabRef) throws -> JSON {
+        let m = try mode(a)
+        guard a["value"] is String || a["value"] is NSNumber else { throw MCPError("missing parameter: value (the text to type)") }
+        let valeur = a.string("value") ?? "\(a["value"]!)"
+        var args = argsPage(a, ["clear"])
+        args["value"] = valeur
+        let aCible = cibleCles.contains { a.has($0) }
+        if m != "native" && m != "ax" {
+            var o = try actionPage("type", args, t, timeout: delai(a, 5000))
+            let ok = o.removeValue(forKey: "ok") as? Bool ?? true
+            if m == "dom" || ok || o["navigated"] != nil || Native.ecranVerrouille {
+                if !ok && Native.ecranVerrouille { o["escalation"] = Native.verrouille }
+                if !ok { o["warning"] = "the field does not show the typed text (the page may reformat or reject it; try mode native)" }
+                if a.bool("submit") == true { o["submit"] = try presser(["keys": ["Enter"], "mode": "auto"], t) }
+                return compact(o)
+            }
+        }
+        // Clavier natif : clic natif sur le champ pour le focaliser (place le curseur), puis la frappe réelle
+        var info: JSON = ["activated_safari": true, "level": "native"]
+        var w: Int?
+        if aCible {
+            let loc = try actionPage("locate", argsPage(a, []), t, timeout: delai(a, 5000))
+            guard let x = loc["x"] as? Double, let y = loc["y"] as? Double else { throw MCPError("could not locate the field") }
+            w = loc["watch"] as? Int
+            let prep = try Native.preparer(t)
+            try Native.activer()
+            Native.click(at: Native.ecran(prep.web, x: x, y: y, vw: loc["vw"] as? Double ?? 0))
+            Thread.sleep(forTimeInterval: 0.1)
+        } else {
+            w = try Page.call("watch", [:], in: t)["watch"] as? Int
+            _ = try Native.preparer(t)
+            try Native.activer()
+        }
+        if a.bool("clear") == true { try Native.key("Cmd+A"); try Native.key("Backspace") }
+        Native.type(valeur)
+        if a.bool("submit") == true { try Native.key("Enter") }
+        var o = (try? Page.call("settle", ["watch": w ?? 0, "quiet": 150], in: t, timeout: 4)) ?? [:]
+        o.merge(info) { a, _ in a }
+        if let f = try? Page.call("read", ["max_chars": 300].merging(aCible ? passer(a, cibleCles) : [:]) { a, _ in a }, in: t), a.has("ref") || a.has("selector") {
+            o["value"] = f["text"]
+        }
+        return compact(o, level: "native")
+    }
+
+    static func presser(_ a: JSON) throws -> Any { try presser(a, onglet(a)) }
+    static func presser(_ a: JSON, _ t: TabRef) throws -> JSON {
+        let m = try mode(a)
+        let touches = a.strings("keys") ?? a.nonEmpty("key").map { [$0] } ?? []
+        guard !touches.isEmpty else { throw MCPError("missing parameter: keys (e.g. [\"Enter\"] or [\"Cmd+B\"])") }
+        var args = argsPage(a, [])
+        args["keys"] = touches
+        if m != "native" && m != "ax" {
+            let o = try actionPage("press", args, t, timeout: delai(a, 5000))
+            if m == "dom" || o["reacted"] as? Bool != false || o["navigated"] != nil { return compact(o) }
+            if Native.ecranVerrouille { var r = compact(o); r["escalation"] = Native.verrouille; return r }
+        }
+        // Raccourci que les événements synthétiques ne déclenchent pas : vraies touches, Safari au premier plan
+        let w = try Page.call("watch", [:], in: t)["watch"] as? Int ?? 0
+        let prep = try Native.preparer(t)
+        try Native.activer()
+        for k in touches { try Native.key(k) }
+        var o = try Page.call("settle", ["watch": w], in: t, timeout: 4)
+        o["keys"] = touches
+        o["activated_safari"] = true
+        if prep.tabSwitched { o["tab_activated"] = true }
+        return compact(o, level: "native")
+    }
+
+    static func choisir(_ a: JSON) throws -> Any { try choisir(a, onglet(a)) }
+    static func choisir(_ a: JSON, _ t: TabRef) throws -> JSON {
+        guard a.has("option") else { throw MCPError("missing parameter: option (value or visible text; a list for a multiple select)") }
+        return compact(try actionPage("select", argsPage(a, ["option"]), t, timeout: delai(a, 5000)))
+    }
+
+    static func cocher(_ a: JSON) throws -> Any { try cocher(a, onglet(a)) }
+    static func cocher(_ a: JSON, _ t: TabRef) throws -> JSON {
+        var o = try actionPage("check", argsPage(a, ["checked"]), t, timeout: delai(a, 5000))
+        if o.removeValue(forKey: "ok") as? Bool == false {
+            // case dessinée par la page qui ignore les clics synthétiques : clic escaladé sur le même élément
+            guard let f = o["field"] as? String, let ref = f.split(separator: " ").first else { return compact(o) }
+            var c = try cliquer(["ref": String(ref), "mode": a.nonEmpty("mode") ?? "auto"], t)
+            c["checked"] = (a.bool("checked") ?? true)
+            return c
+        }
+        return compact(o)
+    }
+
+    static func survoler(_ a: JSON) throws -> Any { try survoler(a, onglet(a)) }
+    static func survoler(_ a: JSON, _ t: TabRef) throws -> JSON {
+        let m = try mode(a)
+        if m != "native" { return compact(try actionPage("hover", argsPage(a, []), t, timeout: delai(a, 5000))) }
+        let loc = try actionPage("locate", argsPage(a, []), t, timeout: delai(a, 5000))
+        guard let x = loc["x"] as? Double, let y = loc["y"] as? Double, let w = loc["watch"] as? Int else { throw MCPError("could not locate the target") }
+        let prep = try Native.preparer(t)
+        try Native.activer()
+        Native.move(to: Native.ecran(prep.web, x: x, y: y, vw: loc["vw"] as? Double ?? 0))
+        var o = try Page.call("settle", ["watch": w], in: t, timeout: 4)
+        o["hovered"] = loc["target"]; o["activated_safari"] = true
+        return compact(o, level: "native")
+    }
+
+    static func defiler(_ a: JSON) throws -> Any { try defiler(a, onglet(a)) }
+    static func defiler(_ a: JSON, _ t: TabRef) throws -> JSON {
+        var args = argsPage(a, ["to", "by", "block", "wait_more"])
+        if let ms = a.double("timeout") { args["timeout"] = ms }
+        return try actionPage("scroll", args, t, timeout: delai(a, 5000) + 1)
+    }
+
+    static func attendre(_ a: JSON) throws -> Any { try attendre(a, onglet(a)) }
+    static func attendre(_ a: JSON, _ t: TabRef) throws -> JSON {
+        let t0 = Date()
+        let limite = delai(a, 10000)
+        let conditions = ["selector", "text", "gone", "text_gone", "url", "ready_state", "network_idle", "js"]
+        guard conditions.contains(where: { a.has($0) }) || a.has("ms") else {
+            throw MCPError("give a condition: selector, text, gone, text_gone, url, ready_state, network_idle, js, or ms for a plain delay")
+        }
+        if let ms = a.double("ms"), !conditions.contains(where: { a.has($0) }) {
+            Thread.sleep(forTimeInterval: min(ms, 60000) / 1000)
+            return ["waited_ms": Int(ms)]
+        }
+        let args = passer(a, ["selector", "text", "gone", "text_gone", "url", "ready_state", "network_idle", "idle_ms"])
+        var expr = "__mcp.run('probe',\(Page.lit(args)))"
+        if let js = a.nonEmpty("js") {
+            let t = js.trimmingCharacters(in: .whitespacesAndNewlines)
+            let simple = !t.contains(";") && !t.contains("\n") && !t.hasPrefix("return")
+            expr = "__mcp.probeWith(\(Page.lit(args)),function(){\n\(simple ? "return (\(t));" : t)\n})"
+        }
+        var dialogues: [Any] = [], dernier: JSON = [:], navigue = false, url0: String?
+        while true {
+            if let o = try? Page.raw(expr, in: t, timeout: 2) {
+                dialogues += o["dialogs"] as? [Any] ?? []
+                if let u = o["url"] as? String { if url0 == nil { url0 = u } else if u != url0 { navigue = true } }
+                if let e = o["error"] as? String { throw MCPError(e) }
+                if o["met"] as? Bool == true {
+                    var r: JSON = ["met": true, "ms": Int(Date().timeIntervalSince(t0) * 1000)]
+                    for k in ["found", "value", "url"] { if let v = o[k] { r[k] = v } }
+                    if navigue { r["navigated"] = true }
+                    if !dialogues.isEmpty { r["dialogs"] = dialogues }
+                    return r
+                }
+                dernier = o
+            }
+            if Date().timeIntervalSince(t0) >= limite {
+                var etat = "url \(dernier["url"] ?? "?"), readyState \(dernier["ready_state"] ?? "?")"
+                if let e = dernier["js_error"] { etat += ", js error \(e)" }
+                throw MCPError("timed out after \(Int(limite * 1000)) ms (\(etat))")
+            }
+            Thread.sleep(forTimeInterval: 0.03)
+        }
+    }
+
+    // MARK: - act : plusieurs étapes en un appel
+
+    static func agir(_ a: JSON) throws -> Any {
+        let t = try onglet(a)
+        let etapes = a.objects("steps") ?? []
+        guard !etapes.isEmpty else { throw MCPError("missing parameter: steps (list of {action, ...})") }
+        let t0 = Date()
+        var trace: [JSON] = []
+        for (i, e) in etapes.enumerated() {
+            let action = e.nonEmpty("action") ?? ""
+            var s = e
+            s.removeValue(forKey: "action")
+            // politique des dialogues commune à toutes les étapes, sauf si l'étape la précise
+            for k in ["accept_dialogs", "prompt_text"] where s[k] == nil && a[k] != nil { s[k] = a[k] }
+            let d0 = Date()
+            do {
+                var r: JSON
+                switch action {
+                case "click": r = try cliquer(s, t)
+                case "type": r = try taper(s, t)
+                case "press": r = try presser(s, t)
+                case "select": r = try choisir(s, t)
+                case "check": r = try cocher(s, t)
+                case "hover": r = try survoler(s, t)
+                case "scroll": r = try defiler(s, t)
+                case "wait": r = try attendre(s, t)
+                case "read": r = try actionPage("read", passer(s, cibleCles + ["max_chars", "offset"]), t, timeout: delai(s, 5000))
+                case "snapshot":
+                    r = try Page.call("snapshot", passer(s, ["all", "viewport_only", "selector", "ref", "max_chars", "offset", "urls"]), in: t)
+                    r.removeValue(forKey: "ms")
+                case "js":
+                    var j = s; j["tabs"] = [t.json]
+                    r = try executerJS(j) as? JSON ?? [:]
+                case "goto":
+                    guard let u = s.nonEmpty("url").map(normaliser) else { throw MCPError("goto needs url") }
+                    let avant = try AE.get(AE.prop("pURL", of: AE.tab(t)))?.string ?? ""
+                    try AE.set(AE.prop("pURL", of: AE.tab(t)), NSAppleEventDescriptor(string: u))
+                    let st = AS.waitLoaded([t], before: [t: avant], timeout: delai(s, 15000))[t]
+                    r = ["url": st?.url ?? u, "title": st?.titre ?? ""]
+                    if st?.pret == false { r["loaded"] = false }
+                default: throw MCPError("unknown action: \(action) (click, type, press, select, check, hover, scroll, wait, read, snapshot, js, goto)")
+                }
+                if s.has("expect"), r["expect_met"] as? Bool == false { throw MCPError("expected effect not seen: \(Page.lit(s["expect"]!))") }
+                r.removeValue(forKey: "expect_met")
+                var l: JSON = ["step": i + 1, "action": action, "ms": Int(Date().timeIntervalSince(d0) * 1000)]
+                l.merge(r) { a, _ in a }
+                trace.append(l)
+            } catch {
+                var echec: JSON = ["failed_step": i + 1, "action": action, "error": "\(error)",
+                                   "ms": Int(Date().timeIntervalSince(t0) * 1000)]
+                if !trace.isEmpty { echec["done"] = trace }
+                // zone concernée : le dialogue ouvert s'il y en a un, sinon ce qui est à l'écran
+                let info = try? Page.call("page_info", [:], in: t)
+                var sa: JSON = ["viewport_only": true, "max_chars": 3000]
+                if let d = (info?["open_dialogs"] as? [String])?.first, let ref = d.split(separator: " ").first { sa = ["ref": String(ref), "max_chars": 3000] }
+                if let sn = try? Page.call("snapshot", sa, in: t) { echec["snapshot"] = sn["text"] }
+                throw MCPFailure(payload: echec)
+            }
+        }
+        return ["steps": trace, "ms": Int(Date().timeIntervalSince(t0) * 1000)]
+    }
+
     // MARK: - Liste de lecture et favoris (Bookmarks.plist, lecture seule)
 
     private static func titre(_ n: [String: Any]) -> String {

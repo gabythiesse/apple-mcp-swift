@@ -1,0 +1,22 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>[mcp-test] React form</title>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script></head>
+<body><div id="root"></div>
+<script>
+// Formulaire contrôlé React : la valeur n'existe que si React a vu l'événement input
+const h = React.createElement;
+function Form() {
+  const [s, set] = React.useState({ name: '', email: '', country: '', terms: false, sent: '' });
+  const up = k => e => set({ ...s, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+  const submit = e => { e.preventDefault(); set({ ...s, sent: s.terms && s.name && s.email ? `Thanks ${s.name} (${s.email}, ${s.country || 'no country'})` : 'Missing fields' }); };
+  return h('form', { onSubmit: submit },
+    h('h1', null, '[mcp-test] React form'),
+    h('label', null, 'Full name ', h('input', { value: s.name, onChange: up('name') })), h('br'),
+    h('label', null, 'Email ', h('input', { type: 'email', value: s.email, onChange: up('email') })), h('br'),
+    h('label', null, 'Country ', h('select', { value: s.country, onChange: up('country') }, h('option', { value: '' }, '—'), h('option', { value: 'fr' }, 'France'), h('option', { value: 'be' }, 'Belgique'))), h('br'),
+    h('label', null, h('input', { type: 'checkbox', checked: s.terms, onChange: up('terms') }), ' I accept the terms'), h('br'),
+    h('button', { type: 'submit' }, 'Send'),
+    s.sent && h('p', { role: 'status' }, s.sent));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h(Form));
+</script></body></html>

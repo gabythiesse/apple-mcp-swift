@@ -1,0 +1,13 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>[mcp-test] editor</title>
+<style>#ed{border:1px solid #888;min-height:80px;padding:8px}#zone{width:300px;height:120px;background:#eee}</style></head>
+<body><h1>[mcp-test] editor</h1>
+<div id="ed" contenteditable="true" aria-label="Message body"></div>
+<p>Trusted zone (ignores synthetic events):</p>
+<div id="zone" role="application" aria-label="trusted zone"></div><p id="trusted"></p>
+<input id="tf" aria-label="trusted field">
+<script>
+// Ne réagit qu'aux vrais événements (isTrusted), comme une app canvas
+document.getElementById('zone').addEventListener('mousedown', e => { if (e.isTrusted) document.getElementById('trusted').textContent = 'trusted click at ' + e.offsetX + ',' + e.offsetY; });
+document.getElementById('tf').addEventListener('keydown', e => { if (!e.isTrusted) e.preventDefault(); });
+document.getElementById('tf').addEventListener('beforeinput', e => { if (!e.isTrusted) e.preventDefault(); });
+</script></body></html>

@@ -1,0 +1,12 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>[mcp-test] infinite</title>
+<style>.item{height:120px;border-bottom:1px solid #ccc}</style></head>
+<body><h1>[mcp-test] infinite scroll</h1><div id="feed" role="feed"></div><div id="sentinel">loading…</div>
+<nav><a href="#" id="menu" onmouseenter="document.getElementById('sub').hidden=false">Hover menu</a>
+<ul id="sub" hidden role="menu"><li role="menuitem">Sub item A</li><li role="menuitem">Sub item B</li></ul></nav>
+<script>
+// 20 éléments de plus (après 300 ms, comme un appel réseau) chaque fois que le bas de page devient visible
+let n = 0;
+function more() { const f = document.getElementById('feed'); for (let i = 0; i < 20; i++) { const d = document.createElement('article'); d.className = 'item'; d.textContent = 'item ' + (n++); f.appendChild(d); } }
+more();
+new IntersectionObserver(es => { if (es[0].isIntersecting) setTimeout(more, 300); }).observe(document.getElementById('sentinel'));
+</script></body></html>

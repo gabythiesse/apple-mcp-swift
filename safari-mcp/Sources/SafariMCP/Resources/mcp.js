@@ -121,7 +121,9 @@
 
   // ---------------------------------------------------------------- dialogues, réseau, beforeunload
 
+  M.dialogCount = 0;
   function logDialog(type, message, answer) {
+    M.dialogCount++;
     var d = { type: type, message: clip(message == null ? '' : message, 300) };
     if (answer !== undefined) d.answer = answer;
     M.dialogs.push(d);
@@ -137,7 +139,8 @@
     };
     w.print = function () { logDialog('print', ''); };
     // beforeunload : notre écouteur en capture passe avant ceux de la page et les arrête (aucune feuille « Quitter la page ? »)
-    w.addEventListener('beforeunload', function (e) { e.stopImmediatePropagation(); logDialog('beforeunload', ''); }, true);
+    w.addEventListener('beforeunload', function (e) { e.stopImmediatePropagation(); M.unloading = true; }, true);
+    w.addEventListener('pagehide', function () { M.unloading = true; }, true);
     try { Object.defineProperty(w, 'onbeforeunload', { configurable: true, get: function () { return null; }, set: function () {} }); } catch (e) { /* ignoré */ }
     // fetch et XHR comptés pour wait network_idle
     var net = M.net;
@@ -192,9 +195,21 @@
     }
   };
 
+  // Job « sondé » : sa fonction check est réévaluée à chaque sonde du serveur (aucune minuterie de la page :
+  // Safari les bride dans un onglet masqué ou quand l'écran est verrouillé). undefined = pas encore.
+  function checkJob(check) {
+    var id = M.jobNext++;
+    M.jobs.set(id, { done: false, check: check, t0: now() });
+    return { job: id };
+  }
+  M.checkJob = checkJob;
+
   ops.poll = function (a) {
     var j = M.jobs.get(a.id);
     if (!j) return { error: 'job lost', lost: true };
+    if (j.check && !j.done) {
+      try { var v = j.check(); if (v !== undefined) { j.done = true; j.value = v; } } catch (e) { j.done = true; j.error = errInfo(e); }
+    }
     if (!j.done) return { pending: true };
     M.jobs.delete(a.id);
     if (j.error) { var o = { error: j.error.message }; if (j.error.line) o.line = j.error.line; return o; }
@@ -317,6 +332,15 @@
     }
     return clip(t, n || 80);
   }
+  // Texte d'un label sans celui du champ qu'il contient (les options d'un select, la valeur d'un input)
+  function labelText(lab, field) {
+    var t = '';
+    for (var c = lab.firstChild; c; c = c.nextSibling) {
+      if (c === field || (c.nodeType === 1 && (c.contains(field) || /^(SELECT|INPUT|TEXTAREA)$/.test(c.tagName)))) continue;
+      t += c.textContent;
+    }
+    return squash(t);
+  }
   function nameOf(el, role) {
     var v = el.getAttribute('aria-labelledby');
     if (v) {
@@ -328,7 +352,7 @@
     if (v && v.trim()) return clip(squash(v), 80);
     var t = el.tagName;
     if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT') {
-      if (el.labels && el.labels.length) { var l = squash(el.labels[0].textContent); if (l) return clip(l, 80); }
+      if (el.labels && el.labels.length) { var l = labelText(el.labels[0], el); if (l) return clip(l, 80); }
       if (t === 'INPUT' && /^(button|submit|reset)$/i.test(el.type)) return clip(el.value || el.type, 80);
       return clip(squash(el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('name') || ''), 80);
     }
@@ -891,6 +915,509 @@
     var sel = String(window.getSelection ? window.getSelection() : '');
     if (sel.trim()) o.selection = clip(sel, 300);
     if (M.dialogs.length) o.intercepted_dialogs = M.dialogs.length;
+    return o;
+  };
+
+  // ================================================================ ACTION (phase C)
+
+  function deepActive(doc) {
+    var a = (doc || document).activeElement;
+    for (var n = 0; a && n < 10; n++) {
+      if (a.shadowRoot && a.shadowRoot.activeElement) { a = a.shadowRoot.activeElement; continue; }
+      if ((a.tagName === 'IFRAME' || a.tagName === 'FRAME')) { try { if (a.contentDocument && a.contentDocument.activeElement) { a = a.contentDocument.activeElement; continue; } } catch (e) { /* autre origine */ } }
+      break;
+    }
+    return a;
+  }
+  M.deepActive = deepActive;
+  function brief(el) {
+    if (!el || el === document.body || el === document.documentElement) return null;
+    var r = roleOf(el) || (clickable(el) ? 'clickable' : el.tagName.toLowerCase());
+    return line(el, r, { textMax: 80 });
+  }
+
+  // ---------------------------------------------------------------- observation des effets (attente implicite)
+
+  // Démarre l'observation : mutations (document, racine shadow et cadre de la cible), URL, focus, requêtes, état de la cible
+  M.watches = new Map(); M.watchNext = 1;
+  function watch(el) {
+    var w = { added: [], attrs: [], n: 0, t0: now(), last: now(), url: location.href, focus: deepActive(), net: M.net.inflight, netLast: M.net.last, el: el, dlg: M.dialogCount };
+    if (el) w.state = stateKey(el);
+    var cb = function (list) {
+      w.n += list.length; w.last = now();
+      for (var i = 0; i < list.length; i++) {
+        var m = list[i];
+        if (m.type === 'childList') { for (var j = 0; j < m.addedNodes.length && w.added.length < 300; j++) if (m.addedNodes[j].nodeType === 1) w.added.push(m.addedNodes[j]); }
+        else if (m.type === 'attributes' && w.attrs.length < 300) w.attrs.push(m.target);
+      }
+    };
+    var roots = [document.documentElement];
+    if (el) {
+      var rn = el.getRootNode && el.getRootNode();
+      if (rn && rn !== document && roots.indexOf(rn) < 0) roots.push(rn.nodeType === 9 ? rn.documentElement : rn);
+    }
+    w.obs = roots.map(function (r) { var o = new MutationObserver(cb); o.observe(r, { childList: true, subtree: true, attributes: true, characterData: true }); return o; });
+    var id = M.watchNext++;
+    M.watches.set(id, w);
+    return id;
+  }
+  M.watch = watch;
+  function stateKey(el) {
+    try { return [el.checked, el.value, clip(el.textContent, 100), el.getAttribute('aria-checked'), el.getAttribute('aria-expanded'), el.getAttribute('aria-pressed'), el.getAttribute('aria-selected'), el.isConnected].join('|'); } catch (e) { return ''; }
+  }
+
+  // Éléments apparus et visibles : menus, dialogues, listes… (lignes de snapshot, 15 au plus)
+  function appeared(w) {
+    var roots = [], out = [], seen = new Set();
+    w.added.forEach(function (n) { if (n.isConnected) roots.push(n); });
+    w.attrs.forEach(function (n) {
+      if (!n.isConnected || n === w.el) return;
+      var r = roleOf(n);
+      if (r === 'menu' || r === 'dialog' || r === 'alertdialog' || r === 'listbox' || r === 'tooltip' || r === 'alert' || r === 'menubar' && false) { roots.push(n); return; }
+      var cs = n.ownerDocument.defaultView.getComputedStyle(n);
+      if ((cs.position === 'absolute' || cs.position === 'fixed') && n.querySelector('a,button,[role=menuitem],[role=option],input')) roots.push(n);
+    });
+    roots = roots.filter(function (r) { return !roots.some(function (o) { return o !== r && o.contains(r); }); });
+    var count = 0;
+    roots.forEach(function (root) {
+      if (!isVisible(root) && !(root.children && root.children.length)) return;
+      walk(root, function (el) {
+        if (out.length >= 15) { count++; return false; }
+        var t = el.tagName;
+        if (t === 'SCRIPT' || t === 'STYLE' || t === 'TEMPLATE') return false;
+        var role = roleOf(el);
+        var want = role && (INTERACTIVE[role] || role === 'heading' || role === 'dialog' || role === 'alertdialog' || role === 'menu' || role === 'listbox' || role === 'alert' || role === 'tooltip');
+        if (!want && !role && clickable(el)) { role = 'clickable'; want = true; }
+        if (!want || seen.has(el) || !isVisible(el)) return;
+        seen.add(el);
+        out.push(line(el, role, { textMax: 80 }));
+      });
+      // bloc sans élément interactif (toast, message) : son texte
+      if (!out.length && isVisible(root)) { var tx = clip(squash(root.innerText || ''), 120); if (tx) out.push(refOf(root) + ' text ' + JSON.stringify(tx)); }
+    });
+    if (count) out.push('… ' + count + ' more');
+    return out;
+  }
+
+  function expectMet(x) {
+    if (!x) return true;
+    if (typeof x === 'string') {
+      var p = x.match(/^(url|text|selector|gone):\s*(.*)$/);
+      if (p) { var o = {}; o[p[1]] = p[2]; x = o; }
+      else if (/^(https?:|\/)/.test(x)) x = { url: x };
+      else if (/^[#.\[]|^[a-z][a-z0-9-]*[#.\[:]/i.test(x)) x = { selector: x };
+      else x = { text: x };
+    }
+    if (x.url && location.href.indexOf(x.url) < 0) return false;
+    if (x.selector) { var e = document.querySelector(x.selector) || (search({ selector: x.selector })[0] || {}).el; if (!e || !isVisible(e)) return false; }
+    if (x.gone) { var g = document.querySelector(x.gone); if (g && isVisible(g)) return false; }
+    if (x.text) { var r = search({ text: x.text }); if (!r.length || !r[0].visible) return false; }
+    return true;
+  }
+  M.expectMet = expectMet;
+
+  // Attend la stabilité (aucune mutation pendant `quiet` ms, au plus `max` ms) puis résume ce qui a changé.
+  // Renvoie une fonction de sonde (undefined tant que ce n'est pas stable), évaluée par le serveur toutes les 30 ms.
+  function settleCheck(id, opts) {
+    var w = M.watches.get(id);
+    if (!w) return function () { return { error: 'watch lost' }; };
+    var quiet = opts.quiet || 150, max = opts.max || 2000, expect = opts.expect, emax = opts.expect_timeout || 2000;
+    return function () {
+      var t = now(), calm = t - w.last >= quiet && t - M.net.last >= Math.min(quiet, 100);
+      var met = expect ? expectMet(expect) : true;
+      // un lien suivi : la page se décharge, le serveur attendra la suivante
+      if (M.unloading) { w.obs.forEach(function (o) { o.disconnect(); }); M.watches.delete(id); return { navigating: true, reacted: true }; }
+      if (!((calm && (met || t - w.t0 >= emax)) || t - w.t0 >= Math.max(max, expect ? emax : 0))) return undefined;
+      w.obs.forEach(function (o) { o.disconnect(); });
+      M.watches.delete(id);
+      var o = { mutations: w.n };
+      var ap = appeared(w); if (ap.length) o.appeared = ap;
+      if (location.href !== w.url) o.url = location.href;
+      var f = deepActive();
+      if (f !== w.focus && f && f !== document.body) o.focus = brief(f);
+      var stateChanged = w.el && stateKey(w.el) !== w.state;
+      if (w.el) { if (!w.el.isConnected) o.target_removed = true; else if (stateChanged) o.target = brief(w.el); }
+      var netActivity = M.net.inflight !== w.net || M.net.last !== w.netLast;
+      if (netActivity) o.network = true;
+      if (expect) o.expect_met = met;
+      o.reacted = expect ? met : (w.n > 0 || o.url !== undefined || stateChanged || netActivity || M.dialogCount > w.dlg);
+      return o;
+    };
+  }
+  function settle(id, opts) { return checkJob(settleCheck(id, opts)); }
+  M.settle = settle;
+  ops.watch = function (a) { return { watch: watch(a.ref ? byRef(a.ref) : null) }; };
+  ops.settle = function (a) { return settle(a.watch, a); };
+  // Enchaîne une sonde de stabilité après une action synchrone et complète son résultat
+  function settleThen(id, a, extra) {
+    var chk = settleCheck(id, a);
+    return checkJob(function () { var o = chk(); if (o === undefined) return undefined; return extra(o) || o; });
+  }
+
+  // ---------------------------------------------------------------- localisation (pour l'Accessibilité et les clics natifs)
+
+  function center(el, a) {
+    var r = rectOf(el);
+    return { x: r.x + r.w / 2, y: r.y + r.h / 2, r: r };
+  }
+  function bringIntoView(el) {
+    var r = el.getBoundingClientRect(), w = el.ownerDocument.defaultView;
+    if (r.top < 0 || r.left < 0 || r.bottom > w.innerHeight || r.right > w.innerWidth) {
+      if (el.scrollIntoViewIfNeeded) el.scrollIntoViewIfNeeded(true); else el.scrollIntoView({ block: 'center', inline: 'center' });
+    }
+    // dans une iframe : amener aussi le cadre à l'écran
+    try { var fe = w.frameElement; if (fe) bringIntoView(fe); } catch (e) { /* autre origine */ }
+  }
+  ops.locate = function (a) {
+    var el = target(a);
+    bringIntoView(el);
+    var c = a.x != null && a.y != null && !a.ref && !a.selector && a.text == null ? { x: a.x, y: a.y } : center(el);
+    var o = { x: c.x, y: c.y, vw: innerWidth, vh: innerHeight, target: brief(el), ref: refOf(el) };
+    if (a.watch !== false) o.watch = watch(el);
+    var h = hiddenReason(el); if (h) o.hidden = h;
+    return o;
+  };
+
+  // ---------------------------------------------------------------- click
+
+  function mods(a) {
+    var m = (a.modifiers || []).map(function (x) { return String(x).toLowerCase(); });
+    return { metaKey: m.some(function (x) { return /cmd|command|meta|⌘/.test(x); }), ctrlKey: m.some(function (x) { return /ctrl|control/.test(x); }),
+      altKey: m.some(function (x) { return /alt|option|⌥/.test(x); }), shiftKey: m.some(function (x) { return /shift|⇧/.test(x); }) };
+  }
+  function fire(dest, type, base, extra) {
+    var w = dest.ownerDocument.defaultView, o = Object.assign({ bubbles: true, cancelable: true, composed: true, view: w }, base, extra || {});
+    var ev;
+    if (/^pointer/.test(type) && w.PointerEvent) ev = new w.PointerEvent(type, Object.assign({ pointerId: 1, pointerType: 'mouse', isPrimary: true, width: 1, height: 1, pressure: /down/.test(type) ? 0.5 : 0 }, o));
+    else ev = new w.MouseEvent(type, o);
+    if (type === 'pointerenter' || type === 'mouseenter' || type === 'pointerleave' || type === 'mouseleave') Object.defineProperty(ev, 'bubbles', { value: false });
+    return dest.dispatchEvent(ev);
+  }
+  // Point du clic dans le repère du cadre de l'élément, et l'élément réellement touché à ce point (overlay compris)
+  function hitAt(el, a) {
+    var doc = el.ownerDocument, r = el.getBoundingClientRect();
+    var x = a.x != null && a.y != null && !a.ref && !a.selector && a.text == null ? a.x : r.left + r.width / 2;
+    var y = a.x != null && a.y != null && !a.ref && !a.selector && a.text == null ? a.y : r.top + r.height / 2;
+    var hit = doc.elementFromPoint(x, y);
+    for (var n = 0; hit && hit.shadowRoot && n < 10; n++) { var h2 = hit.shadowRoot.elementFromPoint(x, y); if (!h2 || h2 === hit) break; hit = h2; }
+    return { x: x, y: y, hit: hit };
+  }
+  function clickSeq(el, a) {
+    var p = hitAt(el, a), dest = el, covered = null;
+    if (p.hit && (p.hit === el || el.contains(p.hit) || (p.hit.tagName === 'LABEL' && p.hit.control === el))) dest = p.hit;
+    else if (p.hit && p.hit.contains(el)) dest = el;
+    else if (p.hit) covered = p.hit;
+    var w = dest.ownerDocument.defaultView, m = mods(a);
+    var btn = a.button === 'right' ? 2 : a.button === 'middle' ? 1 : 0;
+    var base = Object.assign({ clientX: p.x, clientY: p.y, screenX: p.x + (w.screenX || 0), screenY: p.y + (w.screenY || 0) + 80, button: btn }, m);
+    fire(dest, 'pointerover', base, { buttons: 0 }); fire(dest, 'pointerenter', base, { buttons: 0 });
+    fire(dest, 'mouseover', base, { buttons: 0 }); fire(dest, 'mouseenter', base, { buttons: 0 });
+    fire(dest, 'pointermove', base, { buttons: 0 }); fire(dest, 'mousemove', base, { buttons: 0 });
+    var count = a.double ? 2 : 1;
+    for (var i = 1; i <= count; i++) {
+      var downOk = fire(dest, 'pointerdown', base, { buttons: btn === 2 ? 2 : 1, detail: i }) & fire(dest, 'mousedown', base, { buttons: btn === 2 ? 2 : 1, detail: i });
+      if (downOk && i === 1) {
+        var f = dest.closest && dest.closest('a[href],button,input,textarea,select,summary,[tabindex],[contenteditable=""],[contenteditable=true]');
+        if (f && f.focus) try { f.focus({ preventScroll: true }); } catch (e) { /* ignoré */ }
+      }
+      fire(dest, 'pointerup', base, { buttons: 0, detail: i }); fire(dest, 'mouseup', base, { buttons: 0, detail: i });
+      if (btn === 2) { fire(dest, 'contextmenu', base, { buttons: 0, detail: i }); break; }
+      if (btn === 0) fire(dest, 'click', base, { buttons: 0, detail: i });
+    }
+    if (a.double && btn === 0) fire(dest, 'dblclick', base, { buttons: 0, detail: 2 });
+    return covered;
+  }
+  ops.click = function (a) {
+    var el = target(a);
+    var hidden = hiddenReason(el);
+    if (hidden && !a.force) throw new Error('target is hidden (' + hidden + '): ' + brief(el));
+    bringIntoView(el);
+    var id = watch(el), before = brief(el);
+    var covered = clickSeq(el, a);
+    // lien suivi sans écouteur qui l'empêche : la navigation est l'effet attendu
+    return settleThen(id, a, function (o) {
+      o.clicked = before;
+      if (covered) o.covered_by = describeEl(covered);
+      return o;
+    });
+  };
+
+  // ---------------------------------------------------------------- hover
+
+  ops.hover = function (a) {
+    var el = target(a);
+    bringIntoView(el);
+    var id = watch(el), p = hitAt(el, a), dest = p.hit && (p.hit === el || el.contains(p.hit)) ? p.hit : el;
+    var base = { clientX: p.x, clientY: p.y, button: 0, buttons: 0 };
+    ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove', 'mousemove'].forEach(function (t) { fire(dest, t, base); });
+    return settleThen(id, a, function (o) { o.hovered = brief(el); return o; });
+  };
+
+  // ---------------------------------------------------------------- type
+
+  function editableOf(el) {
+    if (!el) return null;
+    if (el.tagName === 'LABEL' && el.control) return el.control;
+    if (/^(INPUT|TEXTAREA)$/.test(el.tagName) || el.isContentEditable) return el;
+    var inner = el.querySelector && el.querySelector('input:not([type=hidden]),textarea,[contenteditable=""],[contenteditable=true]');
+    return inner || el;
+  }
+  function setNativeValue(el, v) {
+    var w = el.ownerDocument.defaultView;
+    var proto = el.tagName === 'TEXTAREA' ? w.HTMLTextAreaElement.prototype : el.tagName === 'SELECT' ? w.HTMLSelectElement.prototype : w.HTMLInputElement.prototype;
+    var d = Object.getOwnPropertyDescriptor(proto, 'value');
+    // setter du prototype : React, Vue et Angular voient la nouvelle valeur (leur setter d'instance est contourné)
+    if (d && d.set) d.set.call(el, v); else el.value = v;
+  }
+  M.setNativeValue = setNativeValue;
+  function inputEv(el, type, data, inputType) {
+    var w = el.ownerDocument.defaultView;
+    var ev = w.InputEvent ? new w.InputEvent(type, { bubbles: true, cancelable: type === 'beforeinput', composed: true, data: data, inputType: inputType || 'insertText' }) : new w.Event(type, { bubbles: true });
+    return el.dispatchEvent(ev);
+  }
+  ops.type = function (a) {
+    var el = a.ref || a.selector || a.text != null || a.label != null || a.near != null ? editableOf(target(a)) : deepActive();
+    if (!el || el === document.body) throw new Error('no target: give ref, selector, label or text, or focus a field first');
+    if (el.disabled || el.readOnly) throw new Error('field is ' + (el.disabled ? 'disabled' : 'read-only') + ': ' + brief(el));
+    bringIntoView(el);
+    var text = a.value != null ? String(a.value) : '';
+    var id = watch(el);
+    if (el.focus) el.focus({ preventScroll: true });
+    var doc = el.ownerDocument, expected;
+    if (/^(INPUT|TEXTAREA)$/.test(el.tagName)) {
+      var cur = a.clear ? '' : el.value;
+      expected = cur + text;
+      if (a.clear && el.value) { setNativeValue(el, ''); inputEv(el, 'input', null, 'deleteContentBackward'); }
+      if (inputEv(el, 'beforeinput', text)) {
+        setNativeValue(el, expected);
+        try { el.setSelectionRange(expected.length, expected.length); } catch (e) { /* type sans sélection */ }
+        inputEv(el, 'input', text);
+      }
+      el.dispatchEvent(new (doc.defaultView.Event)('change', { bubbles: true }));
+    } else if (el.isContentEditable) {
+      var sel = doc.getSelection(), range = doc.createRange();
+      range.selectNodeContents(el);
+      if (!a.clear) range.collapse(false);
+      sel.removeAllRanges(); sel.addRange(range);
+      if (a.clear) doc.execCommand('delete', false);
+      // insertText déclenche beforeinput et input comme une vraie frappe (ProseMirror, Lexical, Draft les écoutent)
+      var ok = text ? doc.execCommand('insertText', false, text) : true;
+      if (!ok) { range = sel.getRangeAt(0); range.insertNode(doc.createTextNode(text)); range.collapse(false); inputEv(el, 'input', text); }
+      expected = null;
+    } else throw new Error('not a text field: ' + brief(el) + ' (use click, select or check)');
+    return settleThen(id, Object.assign({ quiet: 100 }, a), function (o) {
+      o.field = brief(el);
+      var v = /^(INPUT|TEXTAREA)$/.test(el.tagName) ? el.value : squash(el.innerText);
+      o.value = clip(el.type === 'password' ? '••••' : v, 300);
+      o.ok = expected != null ? v === expected : v.indexOf(squash(text)) >= 0;
+      return o;
+    });
+  };
+
+  // ---------------------------------------------------------------- press (touches et raccourcis)
+
+  var KEYS = { enter: ['Enter', 'Enter', 13], return: ['Enter', 'Enter', 13], tab: ['Tab', 'Tab', 9], escape: ['Escape', 'Escape', 27], esc: ['Escape', 'Escape', 27],
+    backspace: ['Backspace', 'Backspace', 8], delete: ['Delete', 'Delete', 46], space: [' ', 'Space', 32], arrowleft: ['ArrowLeft', 'ArrowLeft', 37],
+    arrowup: ['ArrowUp', 'ArrowUp', 38], arrowright: ['ArrowRight', 'ArrowRight', 39], arrowdown: ['ArrowDown', 'ArrowDown', 40], left: ['ArrowLeft', 'ArrowLeft', 37],
+    up: ['ArrowUp', 'ArrowUp', 38], right: ['ArrowRight', 'ArrowRight', 39], down: ['ArrowDown', 'ArrowDown', 40], home: ['Home', 'Home', 36], end: ['End', 'End', 35],
+    pageup: ['PageUp', 'PageUp', 33], pagedown: ['PageDown', 'PageDown', 34] };
+  function parseKey(k) {
+    var parts = String(k).split('+').map(function (x) { return x.trim(); }).filter(Boolean);
+    var key = parts.pop() || '', m = mods({ modifiers: parts });
+    var low = key.toLowerCase(), d = KEYS[low];
+    if (!d && /^f([1-9]|1[0-2])$/.test(low)) d = [key.toUpperCase(), key.toUpperCase(), 111 + +low.slice(1)];
+    if (!d) {
+      if (key.length !== 1) throw new Error('unknown key ' + key + ' (Enter, Tab, Escape, Backspace, Delete, Space, Arrow*, Home, End, PageUp, PageDown, F1-F12, a letter or digit, with Cmd/Ctrl/Alt/Shift+)');
+      var up = key.toUpperCase(), code = /[a-z]/i.test(key) ? 'Key' + up : /\d/.test(key) ? 'Digit' + key : '';
+      d = [m.shiftKey ? up : key.toLowerCase() === key ? key : key, code, up.charCodeAt(0)];
+      if (/[a-z]/i.test(key)) d[0] = m.shiftKey ? up : key.toLowerCase();
+    }
+    return { key: d[0], code: d[1], keyCode: d[2], m: m, name: key };
+  }
+  function keyEv(el, type, k) {
+    var w = el.ownerDocument.defaultView;
+    var ev = new w.KeyboardEvent(type, Object.assign({ key: k.key, code: k.code, bubbles: true, cancelable: true, composed: true, view: w }, k.m));
+    // keyCode et which ne passent pas par le constructeur : posés sur l'instance (vieux gestionnaires)
+    try { Object.defineProperty(ev, 'keyCode', { value: k.keyCode }); Object.defineProperty(ev, 'which', { value: k.keyCode }); Object.defineProperty(ev, 'charCode', { value: type === 'keypress' ? k.key.charCodeAt(0) : 0 }); } catch (e) { /* ignoré */ }
+    return el.dispatchEvent(ev);
+  }
+  var EDIT_CMDS = { a: 'selectAll', z: 'undo', b: 'bold', i: 'italic', u: 'underline', c: 'copy', x: 'cut' };
+  // Action par défaut que le navigateur aurait faite pour une vraie touche (les événements synthétiques n'en font aucune)
+  function defaultAction(el, k) {
+    var doc = el.ownerDocument, editable = /^(INPUT|TEXTAREA)$/.test(el.tagName) || el.isContentEditable;
+    var cmd = k.m.metaKey || k.m.ctrlKey, low = k.key.toLowerCase();
+    if (cmd && editable && EDIT_CMDS[low]) {
+      var c = low === 'z' && k.m.shiftKey ? 'redo' : EDIT_CMDS[low];
+      if (c === 'selectAll' && el.select) { el.select(); return c; }
+      return doc.execCommand(c, false) ? c : null;
+    }
+    if (cmd) return null;
+    if (k.key === 'Enter') {
+      if (el.tagName === 'INPUT' && el.form) { if (el.form.requestSubmit) el.form.requestSubmit(); else el.form.submit(); return 'submit'; }
+      if (el.tagName === 'TEXTAREA') { inputEv(el, 'beforeinput', '\n', 'insertLineBreak'); setNativeValue(el, el.value + '\n'); inputEv(el, 'input', '\n', 'insertLineBreak'); return 'newline'; }
+      if (el.isContentEditable) return doc.execCommand('insertParagraph', false) ? 'newline' : null;
+      if (/^(BUTTON|A|SUMMARY)$/.test(el.tagName) || roleOf(el) === 'button' || roleOf(el) === 'link') { el.click(); return 'activate'; }
+    }
+    if (k.key === ' ' && (/^(BUTTON|SUMMARY)$/.test(el.tagName) || /^(checkbox|radio)$/i.test(el.type) || roleOf(el) === 'button' || roleOf(el) === 'checkbox')) { el.click(); return 'activate'; }
+    if (k.key === 'Tab') {
+      var f = Array.from(doc.querySelectorAll('a[href],button,input:not([type=hidden]),textarea,select,[tabindex]:not([tabindex="-1"]),[contenteditable=true]')).filter(function (x) { return !x.disabled && isVisible(x); });
+      var i = f.indexOf(el), nx = f[(i + (k.m.shiftKey ? -1 : 1) + f.length) % f.length];
+      if (nx) { nx.focus(); return 'focus'; }
+    }
+    if (k.key === 'Backspace' && /^(INPUT|TEXTAREA)$/.test(el.tagName) && el.value) { setNativeValue(el, el.value.slice(0, -1)); inputEv(el, 'input', null, 'deleteContentBackward'); return 'delete'; }
+    if (k.key === 'Backspace' && el.isContentEditable) return doc.execCommand('delete', false) ? 'delete' : null;
+    return null;
+  }
+  ops.press = function (a) {
+    var keys = Array.isArray(a.keys) ? a.keys : [a.keys || a.key];
+    var el = a.ref || a.selector || a.text != null || a.label != null ? target(a) : deepActive();
+    if (!el) el = document.body;
+    if ((a.ref || a.selector || a.text != null) && el.focus) el.focus({ preventScroll: true });
+    var id = watch(el), done = [];
+    keys.forEach(function (raw) {
+      var k = parseKey(raw), cur = a.ref || a.selector ? el : (deepActive() || el);
+      var ok = keyEv(cur, 'keydown', k);
+      if (ok && k.key.length === 1 && !k.m.metaKey && !k.m.ctrlKey) keyEv(cur, 'keypress', k);
+      var act = ok ? defaultAction(cur, k) : null;
+      keyEv(cur, 'keyup', k);
+      done.push(raw + (act ? ' → ' + act : ok ? '' : ' (handled by the page)'));
+      if (!ok || act) done.handled = true;
+    });
+    return settleThen(id, a, function (o) {
+      o.keys = done;
+      if (done.handled) o.reacted = true;
+      return o;
+    });
+  };
+
+  // ---------------------------------------------------------------- select, check
+
+  ops.select = function (a) {
+    var el = target(a);
+    if (el.tagName === 'LABEL' && el.control) el = el.control;
+    if (el.tagName !== 'SELECT') {
+      var inner = el.querySelector && el.querySelector('select');
+      if (!inner) throw new Error('not a <select>: ' + brief(el) + ' — for a custom dropdown, click it then click the option');
+      el = inner;
+    }
+    var wanted = [].concat(a.option != null ? a.option : a.values || []).map(String);
+    if (!wanted.length) throw new Error('give option: the value or visible text of the option');
+    var id = watch(el), picked = [];
+    Array.from(el.options).forEach(function (o) {
+      var hit = wanted.some(function (w) { return o.value === w || fold(o.text) === fold(w); }) ||
+        (!picked.length && wanted.some(function (w) { return fold(o.text).indexOf(fold(w)) >= 0; }));
+      if (hit && (el.multiple || !picked.length)) { picked.push(o); }
+    });
+    if (!picked.length) throw new Error('no option matches ' + JSON.stringify(wanted) + ' in ' + brief(el) + '; options: ' + Array.from(el.options).slice(0, 20).map(function (o) { return JSON.stringify(squash(o.text)); }).join(', '));
+    el.focus();
+    if (el.multiple) Array.from(el.options).forEach(function (o) { o.selected = picked.indexOf(o) >= 0; });
+    else setNativeValue(el, picked[0].value);
+    el.dispatchEvent(new (el.ownerDocument.defaultView.Event)('input', { bubbles: true }));
+    el.dispatchEvent(new (el.ownerDocument.defaultView.Event)('change', { bubbles: true }));
+    return settleThen(id, a, function (o) { o.selected = picked.map(function (x) { return squash(x.text); }); o.field = brief(el); return o; });
+  };
+
+  function isChecked(el) { var a = el.getAttribute('aria-checked') || el.getAttribute('aria-pressed'); return a != null && el.type !== 'checkbox' && el.type !== 'radio' ? a === 'true' : !!el.checked; }
+  ops.check = function (a) {
+    var el = target(a);
+    if (el.tagName === 'LABEL' && el.control) el = el.control;
+    else if (!/^(checkbox|radio|switch|menuitemcheckbox|menuitemradio)$/.test(roleOf(el) || '')) {
+      var inner = el.querySelector && el.querySelector('input[type=checkbox],input[type=radio],[role=checkbox],[role=switch],[role=radio]');
+      if (inner) el = inner;
+    }
+    var want = a.checked !== false;
+    if (isChecked(el) === want) return { field: brief(el), checked: want, changed: false };
+    var id = watch(el);
+    // une case native masquée par un style personnalisé : clic sur son label, sinon sur elle-même
+    var clickEl = el, lab = el.labels && el.labels[0];
+    if (!isVisible(el) && lab) clickEl = lab;
+    bringIntoView(clickEl);
+    clickSeq(clickEl, {});
+    if (isChecked(el) !== want && el.click) el.click();
+    return settleThen(id, a, function (o) { o.field = brief(el); o.checked = isChecked(el); o.changed = true; o.ok = o.checked === want; return o; });
+  };
+
+  // ---------------------------------------------------------------- scroll
+
+  // Élément qui défile vraiment : le document, sinon le plus grand conteneur défilant (Gmail, Notion, apps)
+  function scroller() {
+    var se = document.scrollingElement || document.documentElement;
+    if (se.scrollHeight > innerHeight + 10) return se;
+    var best = se, area = 0;
+    walk(document.body || se, function (el) {
+      if (el.scrollHeight > el.clientHeight + 20 && el.clientHeight > 100) {
+        var o = getComputedStyle(el).overflowY;
+        if ((o === 'auto' || o === 'scroll') && el.clientWidth * el.clientHeight > area) { area = el.clientWidth * el.clientHeight; best = el; }
+      }
+    });
+    return best;
+  }
+  ops.scroll = function (a) {
+    var t0 = now();
+    if (a.ref || a.selector || a.text != null) {
+      var el = target(a);
+      el.scrollIntoView({ block: a.block || 'center', inline: 'nearest' });
+      return { scrolled_to: brief(el), rect: rectArr(rectOf(el)) };
+    }
+    var sc = scroller(), isDoc = sc === document.scrollingElement || sc === document.documentElement;
+    var before = { top: sc.scrollTop, h: sc.scrollHeight, n: document.getElementsByTagName('*').length };
+    var to = a.to || (a.by != null ? null : 'bottom');
+    var id = watch(null);
+    if (to === 'top') sc.scrollTop = 0;
+    else if (to === 'bottom') sc.scrollTop = sc.scrollHeight;
+    else sc.scrollBy ? sc.scrollBy(a.x || 0, a.by || 0) : (sc.scrollTop += a.by || 0);
+    if (isDoc) window.dispatchEvent(new Event('scroll'));
+    function result(extra) {
+      var o = Object.assign({ y: Math.round(sc.scrollTop), height: sc.scrollHeight, viewport: isDoc ? innerHeight : sc.clientHeight }, extra);
+      if (!isDoc) o.container = brief(sc) || describeEl(sc);
+      if (sc.scrollTop + (isDoc ? innerHeight : sc.clientHeight) >= sc.scrollHeight - 2) o.at_bottom = true;
+      return o;
+    }
+    if (to !== 'bottom' || a.wait_more === false) { var w0 = M.watches.get(id); w0.obs.forEach(function (o) { o.disconnect(); }); M.watches.delete(id); return result({}); }
+    // défilement infini : attendre l'arrivée de nouveaux éléments (au plus timeout ms), puis redescendre une fois
+    var limit = a.timeout || 4000;
+    return checkJob(function () {
+      var grown = sc.scrollHeight > before.h + 5 || document.getElementsByTagName('*').length > before.n + 5;
+      var w = M.watches.get(id), quiet = w && now() - w.last > 300;
+      if (!((grown && (quiet || now() - t0 > 1500)) || now() - t0 > limit)) return undefined;
+      if (w) { w.obs.forEach(function (o) { o.disconnect(); }); M.watches.delete(id); }
+      var added = document.getElementsByTagName('*').length - before.n;
+      if (grown) sc.scrollTop = sc.scrollHeight;
+      return result({ loaded_more: grown, new_elements: Math.max(0, added) });
+    });
+  };
+
+  // ---------------------------------------------------------------- wait (une sonde : le serveur répète toutes les 30 ms)
+
+  ops.probe = function (a) {
+    var o = { ready_state: document.readyState, url: location.href };
+    var met = true;
+    if (a.selector) { var r = search({ selector: a.selector }).filter(function (x) { return x.visible; }); met = met && r.length > 0; if (r.length) o.found = brief(r[0].el); }
+    if (a.text != null) { var t = search({ text: a.text }).filter(function (x) { return x.visible; }); met = met && t.length > 0; if (t.length) o.found = brief(t[0].el); }
+    if (a.gone) { var g = search({ selector: a.gone }).filter(function (x) { return x.visible; }); met = met && !g.length; }
+    if (a.text_gone != null) { var tg = search({ text: a.text_gone }).filter(function (x) { return x.visible; }); met = met && !tg.length; }
+    if (a.url) met = met && location.href.indexOf(a.url) >= 0;
+    if (a.ready_state) met = met && (document.readyState === a.ready_state || (a.ready_state === 'interactive' && document.readyState === 'complete'));
+    if (a.network_idle) { var idle = a.idle_ms || 500; met = met && M.net.inflight === 0 && now() - M.net.last >= idle; o.inflight = M.net.inflight; }
+    o.met = met;
+    return o;
+  };
+  M.probeWith = function (a, fn) {
+    var o = JSON.parse(M.run('probe', a));
+    if (o.error) return JSON.stringify(o);
+    try { var v = fn(); if (!v) o.met = false; else if (v !== true) o.value = ser(v); } catch (e) { o.met = false; o.js_error = errInfo(e).message; }
+    return JSON.stringify(o);
+  };
+
+  // ---------------------------------------------------------------- read (étape d'act)
+
+  ops.read = function (a) {
+    var max = a.max_chars || 4000;
+    if (!(a.ref || a.selector || a.text != null || a.label != null)) return ops.markdown({ max_chars: max });
+    var el = target(a);
+    var v = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ? (el.tagName === 'SELECT' ? valueOf(el, 'combobox') : el.value) : (el.innerText || el.textContent || '');
+    var o = M.slice('read', v, a.offset || 0, max);
+    o.element = brief(el);
     return o;
   };
 
