@@ -1,6 +1,6 @@
 # apple-mcp-swift — serveurs MCP pour Rappels, Calendrier, Mail, Notes, Contacts et Safari
 
-**Six serveurs MCP natifs en Swift pour piloter Rappels, Calendrier, Mail, Notes, Contacts et Safari. Zéro dépendance. Une seule autorisation macOS.**
+**Six serveurs MCP natifs en Swift pour piloter Rappels, Calendrier, Mail, Notes, Contacts et Safari. Zéro dépendance. Une seule autorisation macOS, donnée une fois : ensuite tu pilotes ton Mac depuis ton téléphone.**
 
 [English version](README.md)
 
@@ -10,7 +10,7 @@ Six serveurs [Model Context Protocol](https://modelcontextprotocol.io) qui perme
 
 ## Pourquoi celui-ci
 
-- **Une seule autorisation.** Tous les serveurs passent par un lanceur signé unique, `AppleMCP`. Réglages Système affiche un seul interrupteur `AppleMCP`, pas un par serveur, par client ou par recompilation.
+- **Utilisable loin de ton Mac.** Claude Code et Codex tournent sur ton Mac pendant que tu les pilotes depuis ton téléphone. Si macOS affiche une demande d'autorisation à ce moment-là, personne n'est là pour cliquer sur « Autoriser » et l'appel échoue. Ici tout s'autorise une fois, à l'installation : tous les serveurs passent par un lanceur signé unique, `AppleMCP`, à signature stable, donc ni un nouveau serveur, ni un nouveau client, ni une recompilation ne redemandent. Réglages Système affiche un seul interrupteur `AppleMCP`, pas un par serveur, par client ou par recompilation.
 - **Vraiment natif.** Sous-tâches, sections, tags et images dans Rappels ; groupes d'onglets dans Safari ; recherche Mail et Notes via leur index local. Ni Node, ni Python, ni SDK MCP : le protocole tient en ~120 lignes de Swift.
 - **Prudent par construction.** Suppressions uniquement par identifiant. Rien ne part (mail, invitation, réponse) sans un outil dont le nom le dit. Chaque outil porte les annotations MCP (lecture seule, destructif, effet externe) : le client peut demander avant un appel risqué.
 
@@ -69,6 +69,9 @@ Pour un autre client MCP : commande `bin/AppleMCP`, argument = nom du serveur (`
 - **Les tests touchent tes vraies données** : `*/tests/smoke.py` crée des éléments `MCP-TEST-<horodatage>` dans les vraies apps et vérifie qu'il ne reste rien. Ils n'envoient jamais de mail ni d'invitation.
 
 ## FAQ
+
+### Je peux l'utiliser depuis mon téléphone, hors de chez moi ?
+Oui, c'est pour ça qu'il a été conçu. Claude Code et Codex permettent tous les deux de piloter une session du Mac depuis un mobile. Les autorisations sont toutes données à l'installation et survivent aux recompilations : aucune demande macOS n'apparaît quand tu es dehors, rien ne reste bloqué en attente d'un clic.
 
 ### Comment connecter Claude à Rappels sur Mac ?
 Lance `./installer.command` (voir [Installation](#installation)). Il déclare les serveurs dans l'app Claude et Codex, puis tu demandes à Claude en langage courant : *« Rappelle-moi d'appeler la banque demain à 9 h. »*

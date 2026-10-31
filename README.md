@@ -1,6 +1,6 @@
 # apple-mcp-swift — MCP servers for Apple Reminders, Calendar, Mail, Notes, Contacts & Safari
 
-**Native Swift MCP servers for Reminders, Calendar, Mail, Notes, Contacts and Safari. Zero dependencies. One macOS permission.**
+**Native Swift MCP servers for Reminders, Calendar, Mail, Notes, Contacts and Safari. Zero dependencies. One macOS permission, granted once: then drive your Mac from your phone.**
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![77 tools](https://img.shields.io/badge/tools-77-blue) ![MIT](https://img.shields.io/badge/license-MIT-green)
 
@@ -10,7 +10,7 @@ Six [Model Context Protocol](https://modelcontextprotocol.io) servers that let C
 
 ## Why this one
 
-- **One permission.** Every server runs behind a single signed launcher, `AppleMCP`. System Settings shows one `AppleMCP` switch, not one per server, per client or per rebuild.
+- **Works while you're away from your Mac.** Claude Code and Codex can run on your Mac while you drive them from your phone. If macOS shows a permission prompt then, nobody is there to click "Allow" and the call fails. Here you grant everything once, at install: every server runs behind a single signed launcher, `AppleMCP`, with a stable signature, so new servers, new clients and rebuilds never ask again. System Settings shows one `AppleMCP` switch, not one per server, per client or per rebuild.
 - **Really native.** Subtasks, sections, tags and images in Reminders; tab groups in Safari; Mail and Notes search through their local index. No Node, no Python runtime, no MCP SDK: the protocol is ~120 lines of Swift.
 - **Safe by design.** Deletions only by ID. Nothing is sent (email, invitation, reply) except by a tool whose name says so. Every tool carries MCP annotations (read-only, destructive, open-world), so clients can ask before risky calls.
 
@@ -167,6 +167,9 @@ python3 -I reminders-mcp/tests/smoke.py bin/...   # smoke test (real data, see a
 Each server has the same layout: `Protocol.swift` (MCP), `Tools.swift` (names, descriptions, schemas), `Handlers.swift` (logic), plus the access layer (`EventKit`, `AppleScript`, `Index`, `Private`). Some code comments are still in French.
 
 ## FAQ
+
+### Can I use it from my phone, away from my Mac?
+Yes. That is what it was built for. Claude Code and Codex both let you drive a session on your Mac from mobile. Permissions are all granted at install and survive rebuilds, so no macOS prompt appears while you are away and nothing blocks waiting for a click.
 
 ### How do I connect Claude to Apple Reminders on my Mac?
 Run `./installer.command` (see [Install](#install)). It registers the servers in the Claude desktop app and Codex, then you ask Claude in plain language: *"Remind me to call the bank tomorrow at 9."*
