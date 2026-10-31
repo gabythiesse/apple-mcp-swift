@@ -4,6 +4,10 @@
 
 [English version](README.md) · [Contribuer](CONTRIBUTING.md) · [Sécurité](SECURITY.md)
 
+<p align="center">
+  <img src="docs/assets/apple-mcp-social-preview.png" alt="Architecture Apple MCP : six apps Apple reliées à des clients MCP par un lanceur signé" width="800">
+</p>
+
 Six serveurs [Model Context Protocol](https://modelcontextprotocol.io) qui permettent à Claude, Codex ou n'importe quel client MCP de piloter les apps Apple de ton Mac : créer des rappels avec sous-tâches, trouver un créneau libre, chercher dans tes mails en quelques millisecondes, ranger des notes, fusionner des contacts en double, lire un onglet Safari.
 
 > Les noms d'outils, paramètres et réponses sont en anglais (standard MCP). Tu peux parler français à ton assistant : c'est lui qui choisit les outils.
