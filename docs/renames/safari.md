@@ -1,5 +1,14 @@
 # safari-mcp: French → English renames
 
+Tools added in v2 have English names only (no French predecessor): `page_info`, `snapshot`, `find`, `act`, `click`,
+`type`, `press`, `select`, `check`, `hover`, `scroll`, `wait`.
+
+v2 output changes on existing tools (names and parameters unchanged):
+- One targeted tab gives a flat object: `read_page`, `run_js`, `navigate` (one action). Several tabs keep the list (`pages`, `results`).
+- Per-item `ok: true` removed (`open`, `navigate`, `run_js`): an item has `error` when it failed. Empty fields are not emitted.
+- `read_page`: default format is now `markdown` (new); `text`, `links` and `html` are unchanged. New parameters `offset`, `selector`, `full`, `links`.
+- `run_js`: `await` accepted; new parameters `timeout`, `max_chars`, `offset`; a truncated result gives `length`; intercepted dialogs under `dialogs`.
+
 ## Tools
 
 | French | English |

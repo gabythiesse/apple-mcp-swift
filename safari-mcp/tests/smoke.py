@@ -100,6 +100,8 @@ try:
     init = rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "smoke", "version": "1"}})
     check(init["result"]["serverInfo"]["name"] == "safari", "initialize")
     check(len(init["result"]["instructions"].splitlines()) <= 10, "instructions ≤ 10 lines")
+    ins = init["result"]["instructions"]
+    check(all(w in ins for w in ("page_info", "snapshot", "act", "run_js")), "instructions guide to page_info, snapshot, act, run_js last")
     rpc("notifications/initialized", notify=True)
     check(rpc("ping")["result"] == {}, "ping")
     tools = {t["name"]: t["annotations"] for t in rpc("tools/list")["result"]["tools"]}

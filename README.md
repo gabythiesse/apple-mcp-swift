@@ -2,7 +2,7 @@
 
 **Native Swift MCP servers for Reminders, Calendar, Mail, Notes, Contacts and Safari. Zero dependencies. Every macOS permission granted once, at install: then drive your Mac from your phone.**
 
-![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![78 tools](https://img.shields.io/badge/tools-78-blue) ![MIT](https://img.shields.io/badge/license-MIT-green)
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![90 tools](https://img.shields.io/badge/tools-90-blue) ![MIT](https://img.shields.io/badge/license-MIT-green)
 
 [Version française](README.fr.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
@@ -10,7 +10,7 @@
   <img src="docs/social-preview/banner.png" alt="From your phone: &quot;Got the invoice for my headphones: file it and remind me before the return deadline.&quot; Mail finds it, Notes files the PDF, Reminders sets the return deadline." width="800">
 </p>
 
-Six [Model Context Protocol](https://modelcontextprotocol.io) servers that let Claude, Codex or any MCP client drive the Apple apps on your Mac: create reminders with subtasks, find a free slot, search your mail in milliseconds, file notes, merge duplicate contacts, read a Safari tab.
+Six [Model Context Protocol](https://modelcontextprotocol.io) servers that let Claude, Codex or any MCP client drive the Apple apps on your Mac: create reminders with subtasks, find a free slot, search your mail in milliseconds, file notes, merge duplicate contacts, read and drive any web page in Safari.
 
 ## Why this one
 
@@ -124,16 +124,23 @@ Legend: 🔍 read-only · ✏️ writes · ⚠️ destructive
 | 🔍 `find_duplicates` · ⚠️ `merge_contacts` | Find and merge duplicates |
 | ✏️ `export_vcard` · `import_vcard` | vCard files |
 
-### Safari (15)
+### Safari (27)
 | Tool | What it does |
 |---|---|
-| 🔍 `list_tabs` · `read_page` | Windows, tabs, page text, links or HTML |
+| 🔍 `list_tabs` | Windows and tabs |
 | ✏️ `open` · `navigate` · ⚠️ `close` | Open (also private windows), go, reload, back, close |
-| ✏️ `run_js` | Run JavaScript in a tab |
+| 🔍 `page_info` | What the page is: frameworks and editors (React, draw.io, Monaco, Google Docs…), type (article, app, form, PDF, login, captcha), iframes, shadow roots, scroll, open dialogs, focus |
+| 🔍 `snapshot` · `find` | Compact accessibility tree with refs (`e12`), shadow DOM and same-origin iframes included; find by text, role, label or proximity |
+| 🔍 `read_page` | Main content as Markdown (tables, lists, code), or text, links, HTML; PDF text through PDFKit |
+| ✏️ `act` | A whole sequence (open a menu, pick an item, fill a form, submit, read the result) in one call |
+| ✏️ `click` · `type` · `press` · `select` · `check` · `hover` · `scroll` · `wait` | One step, like a person: full event sequences, waits for the page to settle, reports what appeared; escalates to the Accessibility press then to real mouse/keyboard events when a page ignores synthetic ones |
+| ✏️ `run_js` | JavaScript in a tab (await accepted), as a last resort |
 | ✏️ `capture_page` | Save a PNG/JPEG of a tab (visible part or whole page), e.g. to attach to a reminder. No Screen Recording permission: the page is redrawn off screen |
 | 🔍 `list_reading_list` · ✏️ `add_to_reading_list` · ⚠️ `delete_from_reading_list` | Reading List |
 | 🔍 `list_bookmarks` · `list_history` · `list_tab_groups` | Bookmarks, history, tab groups |
 | ⚠️ `delete_history` · `delete_tab_groups` | Delete history pages, tab groups |
+
+Driving a page is fast and works on any kind of site: calls go to Safari as raw Apple Events (about 1 ms, no AppleScript compiled per call), and a helper library is injected once per page (`safari-mcp/Sources/SafariMCP/Resources/mcp.js`), so each call sends a tiny script. `alert`, `confirm`, `prompt` and `beforeunload` are answered automatically and reported, so Safari never freezes. Measured on real pages (`safari-mcp/tests/scenarios.py`): a Wikipedia article as Markdown in 130 ms, a React form filled and submitted in one `act` call (0.8 s), draw.io's *Edit Diagram* XML read in one call (0.9 s). Real mouse and keyboard events need an unlocked session; file uploads cannot be done from JavaScript.
 
 ## How it works
 

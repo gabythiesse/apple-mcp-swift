@@ -8,7 +8,7 @@
   <img src="docs/social-preview/banner.png" alt="Depuis le téléphone : « range la facture de mon casque et rappelle-moi la fin du délai de retour ». Mail la trouve, Notes range le PDF, Rappels note l’échéance." width="800">
 </p>
 
-Six serveurs [Model Context Protocol](https://modelcontextprotocol.io) qui permettent à Claude, Codex ou n'importe quel client MCP de piloter les apps Apple de ton Mac : créer des rappels avec sous-tâches, trouver un créneau libre, chercher dans tes mails en quelques millisecondes, ranger des notes, fusionner des contacts en double, lire un onglet Safari.
+Six serveurs [Model Context Protocol](https://modelcontextprotocol.io) qui permettent à Claude, Codex ou n'importe quel client MCP de piloter les apps Apple de ton Mac : créer des rappels avec sous-tâches, trouver un créneau libre, chercher dans tes mails en quelques millisecondes, ranger des notes, fusionner des contacts en double, lire et piloter n'importe quelle page dans Safari.
 
 > Les noms d'outils, paramètres et réponses sont en anglais (standard MCP). Tu peux parler français à ton assistant : c'est lui qui choisit les outils.
 
@@ -52,7 +52,9 @@ Pour un autre client MCP : commande `bin/AppleMCP`, argument = nom du serveur (`
 
 ## Serveurs et outils
 
-78 outils au total : Rappels (14), Calendrier (11), Mail (12), Notes (13), Contacts (13), Safari (15). La liste détaillée est dans le [README anglais](README.md#servers-and-tools).
+90 outils au total : Rappels (14), Calendrier (11), Mail (12), Notes (13), Contacts (13), Safari (27). La liste détaillée est dans le [README anglais](README.md#servers-and-tools).
+
+Safari pilote n'importe quelle page comme une personne, en 1 à 3 appels : `page_info` dit à quoi on a affaire (React, draw.io, Google Docs, PDF, connexion…), `snapshot` liste les contrôles avec des références (`e12`), `read_page` rend le contenu principal en Markdown, `act` enchaîne plusieurs étapes en un appel, et `click`, `type`, `press`, `select`, `check`, `hover`, `scroll`, `wait` font une étape isolée. Les appels partent en Apple Events bruts (environ 1 ms) et une bibliothèque est injectée une fois par page. Les `alert`, `confirm` et `prompt` reçoivent une réponse automatique et sont signalés : Safari ne gèle plus. Quand une page ignore les événements synthétiques (draw.io, apps canvas, Google Docs), l'action passe d'elle-même par l'Accessibilité puis par de vrais clics et frappes, ce qui demande une session déverrouillée.
 
 ## Comment ça marche
 

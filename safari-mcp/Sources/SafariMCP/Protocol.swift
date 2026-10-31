@@ -43,12 +43,13 @@ func jsonText(_ value: Any) -> String {
 
 enum Server {
     static let name = "safari"
-    static let version = "1.0.0"
+    static let version = "2.0.0"
     static let instructions = """
-    Controls Safari on the Mac: windows and tabs (read, open, navigate, close, JavaScript), \
-    Reading List, bookmarks, history and tab groups (deletions through the interface). \
-    A tab is identified by {window_id, index} as returned by list_tabs or open; the index shifts after a close. \
-    Without a tab, tools act on the active tab of the front window. \
+    Controls Safari on the Mac: tabs and windows, web pages (read and act like a person), Reading List, bookmarks, history, tab groups.
+    On an unknown page: page_info (what it is), then snapshot (the controls, each with a ref such as e12) or read_page (the text as markdown).
+    To act: act for any sequence of steps in one call; click, type, press, select, check, hover, scroll, wait for a single step. Targets: ref first, else text, label or selector.
+    Actions wait for the page to settle and return what changed; alerts are answered automatically and listed. run_js only as a last resort.
+    A tab is {window_id, index} from list_tabs or open (the index shifts after a close); without one, tools use the active tab of the front window.
     Writes take lists (batch). Dates in local time: YYYY-MM-DD or YYYY-MM-DDTHH:MM.
     """
 

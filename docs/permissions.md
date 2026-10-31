@@ -21,10 +21,10 @@ SQLite and file access under `~/Library` or user-given paths.
 | 3 | Contacts | contacts: all 13 tools | `contacts-mcp/Sources/ContactsMCPCore/Contacts.swift:13-16` (`CNContactStore.requestAccess`) |
 | 4 | Automation → Mail | mail: every tool that reads or changes messages and mailboxes through Mail | `mail-mcp/Sources/MailMCP/AppleScript.swift:14` (`tell application "Mail"`), `Handlers.swift:61,149,182` |
 | 5 | Automation → Notes | notes: all 13 tools | `notes-mcp/Sources/NotesMCP/AppleScript.swift:90` (`tell application "Notes"`) |
-| 6 | Automation → Safari | safari: tabs, pages, JavaScript, reading list, deletions | `safari-mcp/Sources/SafariMCP/Handlers.swift:34,78,92,158,225,275,409`, `AppleScript.swift:58,64,120`, `Suppressions.swift:70-89` |
+| 6 | Automation → Safari | safari: tabs, pages, JavaScript, every page tool (`page_info`, `snapshot`, `find`, `read_page`, `act`, `click`…), reading list, deletions | raw Apple Events: `safari-mcp/Sources/SafariMCP/AppleEvents.swift:47` (`sendEvent`, target `com.apple.Safari`), `:68` (`do JavaScript`); AppleScript: `Handlers.swift` (`open`, `close`, `add_to_reading_list`), `Capture.swift`, `Suppressions.swift:70-89`. Same Automation grant for both paths |
 | 7 | Automation → Contacts | contacts: notes, removal from a group, selection in the app, vCard with notes, search in notes | `contacts-mcp/Sources/ContactsMCPCore/AppleScript.swift:45` (`tell application id "com.apple.AddressBook"`) |
 | 8 | Automation → System Events | mail: `delete_mailboxes` (clicks the Mailbox menu) | `mail-mcp/Sources/MailMCP/Handlers.swift:166` (`tell application "System Events" to tell process "Mail"`) |
-| 9 | Accessibility | safari: `open` with a private window, `delete_history`, `delete_tab_groups`, `delete_from_reading_list`; mail: `delete_mailboxes` (UI scripting through System Events) | `safari-mcp/Sources/SafariMCP/AppleScript.swift:81-88` (`AXIsProcessTrusted`, `AXUIElementCreateApplication`), `Suppressions.swift:61-126`; `mail-mcp/Sources/MailMCP/Handlers.swift:166-180` |
+| 9 | Accessibility | safari: `open` with a private window, `delete_history`, `delete_tab_groups`, `delete_from_reading_list`, and the escalation of `click`, `type`, `press`, `check`, `hover` when a page ignores synthetic events (Accessibility press, then real mouse/keyboard events posted with `CGEvent`); mail: `delete_mailboxes` (UI scripting through System Events) | `safari-mcp/Sources/SafariMCP/AppleScript.swift:72-74` (`AXIsProcessTrusted`, `AXUIElementCreateApplication`), `Suppressions.swift:61-126`, `Native.swift:50,102` (`AXUIElementCopyElementAtPosition`, `AXPress`), `Native.swift:121-221` (`CGEvent.post`); `mail-mcp/Sources/MailMCP/Handlers.swift:166-180` |
 | 10 | Full Disk Access | mail: `list_mailboxes`, `list_messages`, `move_messages` (Mail index `~/Library/Mail`), `create_drafts` with attachments (`~/Library/Containers/com.apple.mail`); notes: tags, pinned, folders, trash (`~/Library/Group Containers/group.com.apple.notes`); safari: `list_history`, `list_bookmarks`, `list_reading_list`, `list_tab_groups` (`~/Library/Safari`, Safari's container); every tool taking a file path (Downloads, Desktop, Documents…) | `mail-mcp/Sources/MailMCP/Index.swift:21-32`, `Handlers.swift:35`, `Compose.swift:105-109`; `notes-mcp/Sources/NotesMCP/SQLite.swift:8-19`; `safari-mcp/Sources/SafariMCP/Fichiers.swift:8-37`; paths: `reminders-mcp/.../Handlers.swift:384` (`add_image`), `calendar-mcp/.../Private.swift:55` (attachments), `contacts-mcp/.../Handlers.swift:640-649` (vCard), `notes-mcp/.../Handlers.swift:488,531`, `mail-mcp/.../Handlers.swift:362` (`save_attachments`, default `~/Downloads`) |
 
 Why Full Disk Access covers so much: without it, `~/Library/Mail` and `~/Library/Safari` are simply refused, while
@@ -32,8 +32,13 @@ other apps' containers (Mail, Notes, Safari) and Downloads/Desktop/Documents ope
 which is exactly what must never happen remotely. Full Disk Access grants all of them silently, so it is one switch
 instead of a series of prompts.
 
+Posting real mouse and keyboard events (`CGEvent.post`) needs no separate permission: macOS has a *PostEvent* service,
+but an app trusted for Accessibility passes `CGPreflightPostEventAccess()` without it (checked on 2026-10-31: the Claude app has
+only an Accessibility row in TCC and the check returns true). So the native clicks of the Safari server add no prompt. They do
+need an unlocked session: with the screen locked, the server says so and keeps the DOM result.
+
 Not a macOS permission (no prompt, the tool just returns an error): Safari's *Develop > Allow JavaScript from Apple Events*,
-needed by `read_page`, `run_js`, `capture_page` and back/forward in `navigate`.
+needed by every page tool (`read_page`, `snapshot`, `act`, `click`, `run_js`, `capture_page`…) and back/forward in `navigate`.
 `capture_page` needs no Screen Recording permission: the tab's content is redrawn by an off-screen WebKit view.
 
 ## Onboarding and check
