@@ -1,6 +1,6 @@
 # apple-mcp-swift — serveurs MCP pour Rappels, Calendrier, Mail, Notes, Contacts et Safari
 
-**Six serveurs MCP natifs en Swift pour piloter Rappels, Calendrier, Mail, Notes, Contacts et Safari. Zéro dépendance. Une seule autorisation macOS, donnée une fois : ensuite tu pilotes ton Mac depuis ton téléphone.**
+**Six serveurs MCP natifs en Swift pour piloter Rappels, Calendrier, Mail, Notes, Contacts et Safari. Zéro dépendance. Toutes les autorisations macOS données une fois, à l'installation : ensuite tu pilotes ton Mac depuis ton téléphone.**
 
 [English version](README.md)
 
@@ -10,7 +10,7 @@ Six serveurs [Model Context Protocol](https://modelcontextprotocol.io) qui perme
 
 ## Pourquoi celui-ci
 
-- **Utilisable loin de ton Mac.** Claude Code et Codex tournent sur ton Mac pendant que tu les pilotes depuis ton téléphone. Si macOS affiche une demande d'autorisation à ce moment-là, personne n'est là pour cliquer sur « Autoriser » et l'appel échoue. Ici tout s'autorise une fois, à l'installation : tous les serveurs passent par un lanceur signé unique, `AppleMCP`, à signature stable, donc ni un nouveau serveur, ni un nouveau client, ni une recompilation ne redemandent. Réglages Système affiche un seul interrupteur `AppleMCP`, pas un par serveur, par client ou par recompilation.
+- **Utilisable loin de ton Mac.** Claude Code et Codex tournent sur ton Mac pendant que tu les pilotes depuis ton téléphone. Si macOS affiche une demande d'autorisation à ce moment-là, personne n'est là pour cliquer sur « Autoriser » et l'appel échoue. Ici tout s'autorise une fois, à l'installation, et l'installeur le vérifie avec un tableau ✓/✗. Tous les serveurs passent par un lanceur signé unique, `AppleMCP`, à signature stable, donc ni un nouveau client, ni une recompilation, ni un redémarrage ne redemandent. Chaque autorisation est une seule ligne `AppleMCP` dans Réglages Système, pas une par serveur, par client ou par recompilation.
 - **Vraiment natif.** Sous-tâches, sections, tags et images dans Rappels ; groupes d'onglets dans Safari ; recherche Mail et Notes via leur index local. Ni Node, ni Python, ni SDK MCP : le protocole tient en ~120 lignes de Swift.
 - **Prudent par construction.** Suppressions uniquement par identifiant. Rien ne part (mail, invitation, réponse) sans un outil dont le nom le dit. Chaque outil porte les annotations MCP (lecture seule, destructif, effet externe) : le client peut demander avant un appel risqué.
 
@@ -83,7 +83,7 @@ Oui. `list_messages` et `read_messages` cherchent dans l'index local de Mail, `c
 Oui. Tout client MCP en stdio peut appeler le lanceur `AppleMCP` (voir la [version anglaise](README.md#other-mcp-clients)).
 
 ### Quelle différence avec les autres serveurs MCP pour Apple ?
-Swift natif sans Node ni Python, frameworks privés pour ce qu'AppleScript n'atteint pas (sous-tâches, sections, tags et images de Rappels), et un seul lanceur signé : macOS n'affiche qu'une autorisation `AppleMCP`.
+Swift natif sans Node ni Python, frameworks privés pour ce qu'AppleScript n'atteint pas (sous-tâches, sections, tags et images de Rappels), et un seul lanceur signé : chaque autorisation macOS n'affiche qu'une ligne `AppleMCP`.
 
 ## Licence
 

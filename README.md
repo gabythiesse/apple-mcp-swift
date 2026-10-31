@@ -1,6 +1,6 @@
 # apple-mcp-swift — MCP servers for Apple Reminders, Calendar, Mail, Notes, Contacts & Safari
 
-**Native Swift MCP servers for Reminders, Calendar, Mail, Notes, Contacts and Safari. Zero dependencies. One macOS permission, granted once: then drive your Mac from your phone.**
+**Native Swift MCP servers for Reminders, Calendar, Mail, Notes, Contacts and Safari. Zero dependencies. Every macOS permission granted once, at install: then drive your Mac from your phone.**
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![77 tools](https://img.shields.io/badge/tools-77-blue) ![MIT](https://img.shields.io/badge/license-MIT-green)
 
@@ -10,7 +10,7 @@ Six [Model Context Protocol](https://modelcontextprotocol.io) servers that let C
 
 ## Why this one
 
-- **Works while you're away from your Mac.** Claude Code and Codex can run on your Mac while you drive them from your phone. If macOS shows a permission prompt then, nobody is there to click "Allow" and the call fails. Here you grant everything once, at install: every server runs behind a single signed launcher, `AppleMCP`, with a stable signature, so new servers, new clients and rebuilds never ask again. System Settings shows one `AppleMCP` switch, not one per server, per client or per rebuild.
+- **Works while you're away from your Mac.** Claude Code and Codex can run on your Mac while you drive them from your phone. If macOS shows a permission prompt then, nobody is there to click "Allow" and the call fails. Here you grant everything once, at install, and the installer checks it with a ✓/✗ table. Every server runs behind a single signed launcher, `AppleMCP`, with a stable signature, so new clients, rebuilds and restarts never ask again. Each permission is one `AppleMCP` line in System Settings, not one per server, per client or per rebuild.
 - **Really native.** Subtasks, sections, tags and images in Reminders; tab groups in Safari; Mail and Notes search through their local index. No Node, no Python runtime, no MCP SDK: the protocol is ~120 lines of Swift.
 - **Safe by design.** Deletions only by ID. Nothing is sent (email, invitation, reply) except by a tool whose name says so. Every tool carries MCP annotations (read-only, destructive, open-world), so clients can ask before risky calls.
 
@@ -181,10 +181,10 @@ Yes. `list_messages` and `read_messages` search Mail's local index, `create_draf
 Yes. Any MCP client that speaks stdio can call the `AppleMCP` launcher (see [Other MCP clients](#other-mcp-clients)).
 
 ### How is it different from other Apple MCP servers?
-It is native Swift with no Node or Python runtime, it uses private frameworks for features AppleScript can't reach (Reminders subtasks, sections, tags and images), and every server runs behind one signed launcher, so macOS shows a single `AppleMCP` permission.
+It is native Swift with no Node or Python runtime, it uses private frameworks for features AppleScript can't reach (Reminders subtasks, sections, tags and images), and every server runs behind one signed launcher, so every macOS permission shows a single `AppleMCP` entry.
 
-### Why does macOS only ask for one permission?
-The launcher is the responsible process for all six servers and keeps a stable local signature, so permissions survive rebuilds (see [How it works](#how-it-works)).
+### Why does macOS only show `AppleMCP`?
+The launcher is the responsible process for all six servers, so each permission (Reminders, Calendar, Contacts, Automation, Accessibility, Full Disk Access) has one `AppleMCP` line, whatever the server or the client. Its stable local signature keeps them across rebuilds (see [How it works](#how-it-works)). The full list, with the code behind each one: [docs/permissions.md](docs/permissions.md).
 
 ## License
 
