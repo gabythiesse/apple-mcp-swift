@@ -1,6 +1,7 @@
 // Voie AppleScript : NSAppleScript dans le processus (un script par appel d'outil, tout le lot d'un coup)
 import Foundation
 import AppKit
+import MacUI
 
 /// Référence d'onglet : identifiant de fenêtre AppleScript + index (de gauche à droite, à partir de 1)
 struct TabRef: Hashable {
@@ -61,7 +62,7 @@ enum AS {
 
     /// Safari au premier plan, sans passer par la commande AppleScript activate (qui attend une réponse d'activation)
     static func activerSafari() {
-        NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Safari").first?.activate()
+        if let p = Running.byBundle("com.apple.Safari")?.processIdentifier { Front.activate(p) }
     }
 
     /// Nouvelle fenêtre privée par le menu Fichier de Safari, pressé directement par l'Accessibilité (AXUIElement) :
@@ -70,7 +71,7 @@ enum AS {
         let avant = Set(try visibleWindowIDs())
         activerSafari()
         guard AXIsProcessTrusted() else { throw MCPError(FenetreTravail.accessibilite) }
-        guard let pid = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Safari").first?.processIdentifier,
+        guard let pid = Running.byBundle("com.apple.Safari")?.processIdentifier,
               let barre = AX.attr(AXUIElementCreateApplication(pid), kAXMenuBarAttribute) else { throw MCPError("Safari menu bar not accessible") }
         // Menu Fichier (2e menu après le menu Safari), puis l'élément dont le titre parle de fenêtre privée (fr / en)
         let menus = AX.children(barre as! AXUIElement)

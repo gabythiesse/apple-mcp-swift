@@ -1,4 +1,4 @@
-// `AppleMCP permissions [--request]`: checks, or requests with --request, every macOS permission the six servers need.
+// `AppleMCP permissions [--request]`: checks, or requests with --request, every macOS permission the seven servers need.
 // It runs inside the launcher after it became its own responsible process, so macOS sees exactly the identity the
 // servers run under. The list and the code behind each line: docs/permissions.md (keep both in sync).
 // Without --request nothing here can open a window: status APIs only, Automation checked with askUserIfNeeded = false,
@@ -81,6 +81,11 @@ enum Permissions {
     }
 
     static func accessibilite() -> Etat { AXIsProcessTrusted() ? .ok : .refuse }
+
+    /// Screen Recording (computer: screenshot). CGPreflight never prompts; CGRequest shows the macOS prompt once
+    /// and adds AppleMCP to the list, switched off: the switch is turned on in System Settings.
+    static func ecran() -> Etat { CGPreflightScreenCaptureAccess() ? .ok : .refuse }
+    static func demanderEcran() { _ = CGRequestScreenCaptureAccess() }
     static func demanderAccessibilite() {
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(opts)
@@ -122,11 +127,13 @@ enum Permissions {
                     consigne: "Automation > AppleMCP > turn on \"\(app)\"",
                     verifier: { automation(bundle, demander: false) }, demander: { _ = automation(bundle, demander: true) })
         } + [
-        Service(nom: "Accessibility", pour: "safari (private windows, deletions), mail (delete_mailboxes)", reglage: "Privacy_Accessibility",
+        Service(nom: "Accessibility", pour: "computer (every tool), safari (private windows, deletions, real clicks), mail (delete_mailboxes)", reglage: "Privacy_Accessibility",
                 consigne: "Accessibility > turn on \"AppleMCP\"", verifier: accessibilite, demander: demanderAccessibilite),
         Service(nom: "Full Disk Access", pour: "mail, notes, safari, file paths (attachments, vCard, images)", reglage: "Privacy_AllFiles",
                 consigne: "Full Disk Access > turn on \"AppleMCP\" (not in the list? drag bin/AppleMCP into it)",
                 verifier: disqueComplet, demander: {}),
+        Service(nom: "Screen Recording", pour: "computer (screenshot)", reglage: "Privacy_ScreenCapture",
+                consigne: "Screen & System Audio Recording > turn on \"AppleMCP\"", verifier: ecran, demander: demanderEcran),
     ]
 
     // MARK: run

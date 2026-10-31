@@ -1,4 +1,4 @@
-// AppleMCP: single launcher for the six Apple MCP servers. Usage: AppleMCP <reminders|calendar|mail|notes|contacts|safari>
+// AppleMCP: single launcher for the seven Apple MCP servers. Usage: AppleMCP <reminders|calendar|mail|notes|contacts|safari|computer>
 // Why: macOS ties every permission to the "responsible process". By disclaiming responsibility for itself
 // (responsibility_spawnattrs_setdisclaim) and then spawning the requested server as an ordinary child, THE LAUNCHER is
 // what macOS sees for everything: a single "AppleMCP" row in Full Disk Access, Accessibility, Reminders, Calendar,
@@ -10,6 +10,7 @@ let serveurs: [String: String] = [
     "reminders": "reminders-mcp/bin/RemindersMCP", "calendar": "calendar-mcp/bin/CalendarMCP",
     "mail": "mail-mcp/bin/MailMCP", "notes": "notes-mcp/bin/NotesMCP",
     "contacts": "contacts-mcp/bin/ContactsMCP", "safari": "safari-mcp/bin/SafariMCP",
+    "computer": "computer-mcp/bin/ComputerMCP",
 ]
 let commande = CommandLine.arguments.count >= 2 ? CommandLine.arguments[1] : ""
 guard commande == "permissions" || serveurs[commande] != nil else {
@@ -53,7 +54,7 @@ if ProcessInfo.processInfo.environment["APPLE_MCP_RESPONSABLE"] == nil {
 if commande == "permissions" { exit(Permissions.run(request: CommandLine.arguments.contains("--request"))) }
 
 // 2. Launch the server as an ordinary child: it inherits the launcher's responsibility and does NOT relaunch itself
-for m in ["RAPPELS", "CALENDRIER", "MAIL", "NOTES", "CONTACTS", "SAFARI"] { setenv("\(m)_MCP_RESPONSABLE", "1", 1) }
+for m in ["RAPPELS", "CALENDRIER", "MAIL", "NOTES", "CONTACTS", "SAFARI", "COMPUTER"] { setenv("\(m)_MCP_RESPONSABLE", "1", 1) }
 guard FileManager.default.isExecutableFile(atPath: cible) else { fputs("[AppleMCP] server not found: \(cible)\n", stderr); exit(66) }
 guard let pid = lancer(cible, Array(CommandLine.arguments.dropFirst(2)), disclaim: false) else { fputs("[AppleMCP] could not launch: \(cible)\n", stderr); exit(71) }
 attendre(pid)

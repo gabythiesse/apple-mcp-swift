@@ -7,53 +7,7 @@
 import Foundation
 import AppKit
 import ApplicationServices
-
-enum AX {
-    static func attr(_ el: AXUIElement, _ a: String) -> AnyObject? {
-        var v: AnyObject?
-        return AXUIElementCopyAttributeValue(el, a as CFString, &v) == .success ? v : nil
-    }
-    static func str(_ el: AXUIElement, _ a: String) -> String { attr(el, a) as? String ?? "" }
-    static func children(_ el: AXUIElement) -> [AXUIElement] { attr(el, kAXChildrenAttribute) as? [AXUIElement] ?? [] }
-    static func role(_ el: AXUIElement) -> String { str(el, kAXRoleAttribute) }
-    static func ident(_ el: AXUIElement) -> String { str(el, kAXIdentifierAttribute) }
-    static func set(_ el: AXUIElement, _ a: String, _ v: CFTypeRef) { AXUIElementSetAttributeValue(el, a as CFString, v) }
-    static func press(_ el: AXUIElement) { AXUIElementPerformAction(el, kAXPressAction as CFString) }
-
-    /// Action nommée exposée par l'élément (« Name:Supprimer\nTarget:… ») ; false si absente ou refusée
-    static func action(_ el: AXUIElement, _ nom: String) -> Bool {
-        var n: CFArray?
-        AXUIElementCopyActionNames(el, &n)
-        guard let a = (n as? [String] ?? []).first(where: { $0 == nom || $0.hasPrefix("Name:\(nom)\n") }) else { return false }
-        return AXUIElementPerformAction(el, a as CFString) == .success
-    }
-
-    /// Recherche en profondeur, jamais dans le contenu web
-    static func find(_ el: AXUIElement, depth: Int = 0, _ pred: (AXUIElement) -> Bool) -> [AXUIElement] {
-        if depth > 18 { return [] }
-        var out: [AXUIElement] = []
-        for c in children(el) {
-            if pred(c) { out.append(c) }
-            if role(c) != "AXWebArea" { out += find(c, depth: depth + 1, pred) }
-        }
-        return out
-    }
-    static func first(_ el: AXUIElement, ident i: String) -> AXUIElement? { find(el) { ident($0) == i }.first }
-
-    /// Valeur du premier texte d'identifiant donné sous l'élément
-    static func valeur(_ el: AXUIElement, ident i: String) -> String {
-        find(el) { ident($0) == i }.first.map { str($0, kAXValueAttribute) } ?? ""
-    }
-
-    static func attendre(_ timeout: TimeInterval = 3, _ cond: () -> Bool) -> Bool {
-        let fin = Date().addingTimeInterval(timeout)
-        while Date() < fin {
-            if cond() { return true }
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-        return cond()
-    }
-}
+import MacUI
 
 /// Fenêtre Safari dédiée aux suppressions : ouverte sans URL (page de démarrage, pas d'historique), au premier plan
 final class FenetreTravail {
@@ -74,7 +28,7 @@ final class FenetreTravail {
         id = w
         _ = try? AS.run("tell application \"Safari\" to set index of window id \(w) to 1")
         AS.activerSafari()
-        guard let pid = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Safari").first?.processIdentifier else {
+        guard let pid = Running.byBundle("com.apple.Safari")?.processIdentifier else {
             throw MCPError("Safari is not running")
         }
         let appAX = AXUIElementCreateApplication(pid)

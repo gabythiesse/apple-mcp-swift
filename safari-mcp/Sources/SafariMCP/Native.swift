@@ -2,21 +2,21 @@
 // niveau 2 = AXPress sur l'élément web à ce point (Accessibilité, Safari reste en arrière-plan) ;
 // niveau 3 = vrais événements souris/clavier CGEvent (isTrusted: true), Safari passe au premier plan.
 // Les deux relèvent de l'autorisation Accessibilité, déjà demandée à l'installation (CGPreflightPostEventAccess la suit).
+// L'Accessibilité, les vrais événements et le premier plan viennent du module partagé MacUI (../shared), commun avec computer-mcp ;
+// ici ne reste que ce qui est propre à Safari : fenêtre AppleScript ↔ fenêtre AX, zone web, conversion CSS → écran.
 import Foundation
 import AppKit
 import ApplicationServices
-import Carbon.HIToolbox
+import MacUI
 
 enum Native {
     static let accessibilite = "Accessibility denied: System Settings > Privacy & Security > Accessibility > turn on AppleMCP"
 
     /// Session verrouillée (écran de connexion devant) : aucun événement réel n'atteint Safari, l'arbre AX des fenêtres est vide
-    static var ecranVerrouille: Bool {
-        (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool == true
-    }
+    static var ecranVerrouille: Bool { Session.locked }
     static let verrouille = "the Mac's screen is locked: the Accessibility press and real mouse/keyboard events cannot reach Safari until the session is unlocked"
 
-    static var pid: pid_t? { NSRunningApplication.runningApplications(withBundleIdentifier: AE.bundle).first?.processIdentifier }
+    static var pid: pid_t? { Running.byBundle(AE.bundle)?.processIdentifier }
 
     /// Bornes AppleScript d'une fenêtre (rectangle QuickDraw : haut, gauche, bas, droite), en points écran
     static func bornes(_ w: Int) throws -> CGRect {
@@ -30,20 +30,7 @@ enum Native {
         return CGRect(x: CGFloat(l[0]), y: CGFloat(l[1]), width: CGFloat(l[2] - l[0]), height: CGFloat(l[3] - l[1]))
     }
 
-    private static func point(_ el: AXUIElement, _ a: String) -> CGPoint? {
-        guard let v = AX.attr(el, a), CFGetTypeID(v) == AXValueGetTypeID() else { return nil }
-        var p = CGPoint.zero
-        return AXValueGetValue(v as! AXValue, .cgPoint, &p) ? p : nil
-    }
-    private static func size(_ el: AXUIElement, _ a: String) -> CGSize? {
-        guard let v = AX.attr(el, a), CFGetTypeID(v) == AXValueGetTypeID() else { return nil }
-        var s = CGSize.zero
-        return AXValueGetValue(v as! AXValue, .cgSize, &s) ? s : nil
-    }
-    static func frame(_ el: AXUIElement) -> CGRect? {
-        guard let p = point(el, kAXPositionAttribute), let s = size(el, kAXSizeAttribute) else { return nil }
-        return CGRect(origin: p, size: s)
-    }
+    static func frame(_ el: AXUIElement) -> CGRect? { AX.frame(el) }
 
     /// Fenêtre AX qui correspond à la fenêtre Safari `w` (mêmes bornes)
     static func axWindow(_ w: Int) throws -> AXUIElement {
@@ -115,117 +102,33 @@ enum Native {
         return nil
     }
 
-    // MARK: - Niveau 3 : CGEvent
+    // MARK: - Niveau 3 : CGEvent (module partagé)
 
-    /// Safari au premier plan (nécessaire pour que les vrais événements arrivent dans la page)
+    /// Safari au premier plan (nécessaire pour que les vrais événements arrivent dans la page) ;
+    /// attend d'abord que l'humain ait cessé de taper, vérifie ensuite que Safari a bien le clavier
     static func activer() throws {
-        guard CGPreflightPostEventAccess() || AXIsProcessTrusted() else { throw MCPError(accessibilite) }
-        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: AE.bundle).first else { throw MCPError("Safari is not running") }
-        if !app.isActive {
-            app.activate()
-            for _ in 0..<40 where NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier { Thread.sleep(forTimeInterval: 0.025) }
-            Thread.sleep(forTimeInterval: 0.08)
-        }
+        guard Input.canPost() else { throw MCPError(accessibilite) }
+        guard let pid else { throw MCPError("Safari is not running") }
+        Front.humanPause()
         // garde-fou : de vrais événements envoyés ailleurs iraient dans une autre app
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
-            throw MCPError("Safari could not be brought to the front: real events not sent")
-        }
-    }
-
-    static func flags(_ m: [String]) -> CGEventFlags {
-        var f: CGEventFlags = []
-        for x in m.map({ $0.lowercased() }) {
-            if ["cmd", "command", "meta", "⌘"].contains(x) { f.insert(.maskCommand) }
-            if ["ctrl", "control"].contains(x) { f.insert(.maskControl) }
-            if ["alt", "option", "opt", "⌥"].contains(x) { f.insert(.maskAlternate) }
-            if ["shift", "⇧"].contains(x) { f.insert(.maskShift) }
-        }
-        return f
+        guard Front.activate(pid) else { throw MCPError("Safari could not be brought to the front: real events not sent") }
     }
 
     static func click(at p: CGPoint, button: String = "left", count: Int = 1, modifiers: [String] = []) {
-        let src = CGEventSource(stateID: .hidSystemState)
-        let (bt, down, up): (CGMouseButton, CGEventType, CGEventType) = button == "right" ? (.right, .rightMouseDown, .rightMouseUp)
-            : button == "middle" ? (.center, .otherMouseDown, .otherMouseUp) : (.left, .leftMouseDown, .leftMouseUp)
-        let f = flags(modifiers)
-        CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: bt)?.post(tap: .cghidEventTap)
-        Thread.sleep(forTimeInterval: 0.03)
-        for i in 1...max(1, count) {
-            for type in [down, up] {
-                let e = CGEvent(mouseEventSource: src, mouseType: type, mouseCursorPosition: p, mouseButton: bt)
-                e?.setIntegerValueField(.mouseEventClickState, value: Int64(i))
-                e?.flags = f
-                e?.post(tap: .cghidEventTap)
-                Thread.sleep(forTimeInterval: 0.02)
-            }
-        }
+        Input.click(at: p, button: button, count: count, modifiers: modifiers)
     }
-
-    static func move(to p: CGPoint) {
-        CGEvent(mouseEventSource: CGEventSource(stateID: .hidSystemState), mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left)?.post(tap: .cghidEventTap)
-    }
-
-    /// Touches nommées : codes virtuels (indépendants de la disposition)
-    private static let nommees: [String: Int] = [
-        "enter": kVK_Return, "return": kVK_Return, "tab": kVK_Tab, "escape": kVK_Escape, "esc": kVK_Escape, "backspace": kVK_Delete,
-        "delete": kVK_ForwardDelete, "space": kVK_Space, "arrowleft": kVK_LeftArrow, "left": kVK_LeftArrow, "arrowright": kVK_RightArrow,
-        "right": kVK_RightArrow, "arrowup": kVK_UpArrow, "up": kVK_UpArrow, "arrowdown": kVK_DownArrow, "down": kVK_DownArrow,
-        "home": kVK_Home, "end": kVK_End, "pageup": kVK_PageUp, "pagedown": kVK_PageDown,
-        "f1": kVK_F1, "f2": kVK_F2, "f3": kVK_F3, "f4": kVK_F4, "f5": kVK_F5, "f6": kVK_F6, "f7": kVK_F7, "f8": kVK_F8,
-        "f9": kVK_F9, "f10": kVK_F10, "f11": kVK_F11, "f12": kVK_F12]
-
-    /// Code virtuel qui produit ce caractère avec la disposition clavier active (AZERTY : « a » n'est pas kVK_ANSI_A)
-    private static let parCaractere: [Character: Int] = Thread.isMainThread ? tableCaracteres() : DispatchQueue.main.sync(execute: tableCaracteres)
-    /// Les fonctions TIS ne s'appellent que sur le fil principal
-    private static func tableCaracteres() -> [Character: Int] {
-        var m: [Character: Int] = [:]
-        guard let src = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
-              let ptr = TISGetInputSourceProperty(src, kTISPropertyUnicodeKeyLayoutData) else { return m }
-        let data = Unmanaged<CFData>.fromOpaque(ptr).takeUnretainedValue() as Data
-        data.withUnsafeBytes { raw in
-            guard let layout = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return }
-            for code in 0..<128 {
-                var etat: UInt32 = 0, n = 0
-                var chars = [UniChar](repeating: 0, count: 4)
-                if UCKeyTranslate(layout, UInt16(code), UInt16(kUCKeyActionDown), 0, UInt32(LMGetKbdType()), OptionBits(kUCKeyTranslateNoDeadKeysBit),
-                                  &etat, 4, &n, &chars) == noErr, n == 1, let c = String(utf16CodeUnits: chars, count: 1).first, m[c] == nil {
-                    m[c] = code
-                }
-            }
-        }
-        return m
-    }
-
-    /// Une touche ou un raccourci (« Cmd+B », « Enter », « Shift+Tab »)
+    static func move(to p: CGPoint) { Input.move(to: p) }
     static func key(_ combo: String) throws {
-        var parts = combo.split(separator: "+").map { $0.trimmingCharacters(in: .whitespaces) }
-        let k = parts.popLast() ?? ""
-        let f = flags(parts)
-        let code: Int
-        if let c = nommees[k.lowercased()] { code = c }
-        else if k.count == 1, let c = parCaractere[Character(k.lowercased())] { code = c }
-        else { throw MCPError("unknown key for native mode: \(k)") }
-        let src = CGEventSource(stateID: .hidSystemState)
-        for down in [true, false] {
-            let e = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(code), keyDown: down)
-            e?.flags = f
-            e?.post(tap: .cghidEventTap)
-            Thread.sleep(forTimeInterval: 0.015)
-        }
+        do { try Input.key(combo) } catch { throw MCPError("unknown key for native mode: \(combo)") }
     }
+    static func type(_ texte: String) { Input.type(texte) }
 
-    /// Texte tapé comme au clavier, par paquets de caractères Unicode (indépendant de la disposition)
-    static func type(_ texte: String) {
-        let src = CGEventSource(stateID: .hidSystemState)
-        var reste = Array(texte.utf16)
-        while !reste.isEmpty {
-            let paquet = Array(reste.prefix(16)); reste.removeFirst(paquet.count)
-            for down in [true, false] {
-                let e = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: down)
-                paquet.withUnsafeBufferPointer { e?.keyboardSetUnicodeString(stringLength: paquet.count, unicodeString: $0.baseAddress) }
-                e?.post(tap: .cghidEventTap)
-                Thread.sleep(forTimeInterval: 0.01)
-            }
+    /// Feuilles et alertes natives de Safari ouvertes (Autoriser les téléchargements, Enregistrer sous, Quitter la page…),
+    /// lues par le même code que l'outil dialogs du serveur computer
+    static func dialogues() -> [String] {
+        guard AXIsProcessTrusted(), let pid else { return [] }
+        return Dialogs.scan(pids: [pid]).map { d in
+            "\(d.kind) \"\(d.title.prefix(120))\"" + (d.text.isEmpty ? "" : " — \(d.text.prefix(160))") + " buttons: " + d.buttons.map(\.title).joined(separator: ", ")
         }
     }
 }
