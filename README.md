@@ -7,7 +7,7 @@
 [Version française](README.fr.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 <p align="center">
-  <img src="docs/assets/apple-mcp-social-preview.png" alt="Apple MCP architecture: six Apple apps connect through a signed launcher to MCP clients" width="800">
+  <img src="docs/social-preview/banner.png" alt="From your phone: &quot;Got the invoice for my headphones: file it and remind me before the return deadline.&quot; Mail finds it, Notes files the PDF, Reminders sets the return deadline." width="800">
 </p>
 
 Six [Model Context Protocol](https://modelcontextprotocol.io) servers that let Claude, Codex or any MCP client drive the Apple apps on your Mac: create reminders with subtasks, find a free slot, search your mail in milliseconds, file notes, merge duplicate contacts, read a Safari tab.
