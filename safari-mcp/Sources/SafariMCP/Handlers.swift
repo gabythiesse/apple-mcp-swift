@@ -29,27 +29,19 @@ enum Handlers {
     // MARK: - Onglets
 
     static func onglets(_ a: JSON) throws -> Any {
-        let cible = a.int("window_id").map { "{window id \($0)}" } ?? "(every window whose visible is true)"
-        let d = try AS.run("""
-        tell application "Safari"
-          set out to {}
-          repeat with w in \(cible)
-            set ct to 0
-            try
-              set ct to index of current tab of w
-            end try
-            set end of out to {id of w, ct, name of every tab of w, URL of every tab of w}
-          end repeat
-          return out
-        end tell
-        """)
+        // Apple Events bruts : 3 événements par fenêtre (noms, URL, onglet actif), < 1 ms chacun
+        let fenetres = try a.int("window_id").map { [$0] } ?? AE.visibleWindowIDs()
+        var lignes: [(Int, Int, [NSAppleEventDescriptor], [NSAppleEventDescriptor])] = []
+        for w in fenetres {
+            let tabs = AE.everyTab(of: AE.window(w))
+            let noms = try AE.get(AE.prop("pnam", of: tabs))?.items ?? []
+            let urls = try AE.get(AE.prop("pURL", of: tabs))?.items ?? []
+            let actif = (try? AE.get(AE.prop("pidx", of: AE.prop("cTab", of: AE.window(w))))?.int) ?? 0
+            lignes.append((w, actif, noms, urls))
+        }
         let filtre = a.nonEmpty("text").map(fold)
         var tous: [JSON] = []
-        for w in d.items {
-            let l = w.items
-            guard l.count == 4, let wid = l[0].int else { continue }
-            let actif = l[1].int ?? 0
-            let noms = l[2].items, urls = l[3].items
+        for (wid, actif, noms, urls) in lignes {
             for (k, nom) in noms.enumerated() {
                 let titre = nom.string ?? ""
                 let url = k < urls.count ? urls[k].string ?? "about:blank" : ""
@@ -60,7 +52,7 @@ enum Handlers {
             }
         }
         let limite = max(1, a.int("limit") ?? 50)
-        var out: JSON = ["windows": d.items.count, "tabs": Array(tous.prefix(limite))]
+        var out: JSON = ["windows": lignes.count, "tabs": Array(tous.prefix(limite))]
         if tous.count > limite { out["total"] = tous.count; out["truncated"] = true }
         return out
     }
@@ -153,47 +145,33 @@ enum Handlers {
             if k == "url" && url.isEmpty { throw MCPError("action url without url") }
             items.append((TabRef(fenetre: w, index: i), k, url))
         }
-        let liste = "{" + items.map { "{\($0.0.fenetre), \($0.0.index), \(AS.lit($0.1)), \(AS.lit($0.2))}" }.joined(separator: ", ") + "}"
-        let d = try AS.run("""
-        tell application "Safari"
-          set out to {}
-          repeat with r in \(liste)
-            try
-              set t to tab (item 2 of r) of window id (item 1 of r)
-              set avant to URL of t
-              if avant is missing value then set avant to "about:blank"
-              set k to item 3 of r
-              if k is "url" then
-                set URL of t to (item 4 of r)
-              else if k is "reload" then
-                set URL of t to avant
-              else if k is "back" then
-                do JavaScript "history.back()" in t
-              else if k is "forward" then
-                do JavaScript "history.forward()" in t
-              else if k is "activate" then
-                set current tab of window id (item 1 of r) to t
-                set index of window id (item 1 of r) to 1
-              end if
-              set end of out to {"ok", avant}
-            on error m
-              set end of out to {m, ""}
-            end try
-          end repeat
-          return out
-        end tell
-        """)
+        // Apple Events bruts : une propriété posée ou un do JavaScript par onglet
+        let etats: [(String, String)] = items.map { ref, k, url in
+            do {
+                let t = AE.tab(ref)
+                let avant = try AE.get(AE.prop("pURL", of: t))?.string ?? "about:blank"
+                switch k {
+                case "url": try AE.set(AE.prop("pURL", of: t), NSAppleEventDescriptor(string: url))
+                case "reload": try AE.set(AE.prop("pURL", of: t), NSAppleEventDescriptor(string: avant))
+                case "back": _ = try AE.js("history.back()", in: ref)
+                case "forward": _ = try AE.js("history.forward()", in: ref)
+                default:
+                    try AE.set(AE.prop("cTab", of: AE.window(ref.fenetre)), t)
+                    try AE.set(AE.prop("pidx", of: AE.window(ref.fenetre)), NSAppleEventDescriptor(int32: 1))
+                }
+                return ("ok", avant)
+            } catch { return ("\(error)", "") }
+        }
         if items.contains(where: { $0.1 == "activate" }) { AS.activerSafari() }
         var res: [JSON] = []
         var aAttendre: [TabRef] = []
         var avant: [TabRef: String] = [:]
-        for ((ref, k, _), r) in zip(items, d.items) {
-            let l = r.items
+        for ((ref, k, _), (m, url)) in zip(items, etats) {
             var o = ref.json
-            if l.first?.string == "ok" {
+            if m == "ok" {
                 o["ok"] = true
-                if k != "activate" { aAttendre.append(ref); if k != "reload" { avant[ref] = l.count > 1 ? l[1].string ?? "" : "" } }
-            } else { o["ok"] = false; o["error"] = l.first?.string ?? "failed" }
+                if k != "activate" { aAttendre.append(ref); if k != "reload" { avant[ref] = url } }
+            } else { o["ok"] = false; o["error"] = m }
             res.append(o)
         }
         if a.bool("wait") == true, !aAttendre.isEmpty {
@@ -269,27 +247,10 @@ enum Handlers {
 
     // MARK: - Contenu des pages
 
-    /// Exécute le corps AppleScript `corps` (qui affecte `res` à partir de l'onglet `t`) pour chaque onglet
-    private static func parOnglet(_ refs: [TabRef], _ corps: String) throws -> [(TabRef, Result<NSAppleEventDescriptor, MCPError>)] {
-        let d = try AS.run("""
-        tell application "Safari"
-          set out to {}
-          repeat with r in \(AS.refsList(refs))
-            try
-              set t to tab (item 2 of r) of window id (item 1 of r)
-              \(corps)
-              set end of out to {true, res}
-            on error m
-              set end of out to {false, m}
-            end try
-          end repeat
-          return out
-        end tell
-        """)
-        return zip(refs, d.items).map { ref, item in
-            let l = item.items
-            if l.first?.bool == true, l.count > 1 { return (ref, .success(l[1])) }
-            return (ref, .failure(MCPError(l.count > 1 ? l[1].string ?? "failed" : "failed")))
+    /// Applique `f` à chaque onglet : une erreur par onglet n'arrête pas le lot
+    private static func parOnglet<T>(_ refs: [TabRef], _ f: (TabRef) throws -> T) -> [(TabRef, Result<T, MCPError>)] {
+        refs.map { r in
+            do { return (r, .success(try f(r))) } catch let e as MCPError { return (r, .failure(e)) } catch { return (r, .failure(MCPError("\(error)"))) }
         }
     }
 
@@ -299,45 +260,51 @@ enum Handlers {
         let maxc = max(100, a.int("max_chars") ?? 8000)
         let js: String
         switch format {
-        case "text": js = ""
+        // Texte découpé dans la page : seuls max_chars caractères traversent l'Apple Event (text of t envoyait tout)
+        case "text": js = AS.jsWrapper("var s=document.body?document.body.innerText:'';return [s.length,s.slice(0,\(maxc))]")
         case "html": js = AS.jsWrapper("document.documentElement.outerHTML")
         case "links": js = AS.jsWrapper("[...document.links].slice(0,500).map(a=>[(a.innerText||a.title||'').trim().replace(/\\s+/g,' ').slice(0,120),a.href])")
         default: throw MCPError("unknown format: \(format) (text, links, html)")
         }
-        let corps = format == "text"
-            ? "set res to {name of t, URL of t, text of t}"
-            : "set v to \"\"\nset v to (do JavaScript \(AS.lit(js)) in t)\nset res to {name of t, URL of t, \"\"}\ntry\nset item 3 of res to v\nend try"
-        let pages: [JSON] = try parOnglet(cibles, corps).map { ref, r in
+        let pages: [JSON] = parOnglet(cibles) { ref -> JSON in
+            let (titre, url) = try AE.titleURL(ref)
             var o = ref.json
-            switch r {
-            case .failure(let e): o["error"] = e.description
-            case .success(let d):
-                let l = d.items
-                o["title"] = l.first?.string ?? ""
-                o["url"] = l.count > 1 ? l[1].string ?? "about:blank" : ""
-                var brut = l.count > 2 ? l[2].string ?? "" : ""
-                if format != "text" {
-                    guard brut.hasPrefix("§") else { o["error"] = "JavaScript unavailable: enable Develop > Allow JavaScript from Apple Events"; return o }
-                    brut.removeFirst()
-                    if brut.hasPrefix("ERR") { o["error"] = "JavaScript: " + brut.dropFirst(3); return o }
+            o["title"] = titre; o["url"] = url
+            var brut = try AE.js(js, in: ref) ?? ""
+            if format == "text" && !brut.hasPrefix("§") {
+                // JavaScript indisponible : texte de la page par Safari (plus lent, tout le texte)
+                let t = try AE.get(AE.prop("ctxt", of: AE.tab(ref)))?.string ?? ""
+                brut = "§" + jsonText([t.count, String(t.prefix(maxc))])
+            }
+            guard brut.hasPrefix("§") else { o["error"] = "JavaScript unavailable: enable Develop > Allow JavaScript from Apple Events"; return o }
+            brut.removeFirst()
+            if brut.hasPrefix("ERR") { o["error"] = "JavaScript: " + brut.dropFirst(3); return o }
+            if format == "links" {
+                let paires = (try? JSONSerialization.jsonObject(with: Data(brut.utf8))) as? [[String]] ?? []
+                var vus = Set<String>()
+                let liens: [JSON] = paires.compactMap { p in
+                    guard p.count == 2, !p[1].isEmpty, !p[1].hasPrefix("javascript:"), vus.insert(p[1]).inserted else { return nil }
+                    return p[0].isEmpty ? ["url": p[1]] : ["text": p[0], "url": p[1]]
                 }
-                if format == "links" {
-                    let paires = (try? JSONSerialization.jsonObject(with: Data(brut.utf8))) as? [[String]] ?? []
-                    var vus = Set<String>()
-                    let liens: [JSON] = paires.compactMap { p in
-                        guard p.count == 2, !p[1].isEmpty, !p[1].hasPrefix("javascript:"), vus.insert(p[1]).inserted else { return nil }
-                        return p[0].isEmpty ? ["url": p[1]] : ["text": p[0], "url": p[1]]
-                    }
-                    let lim = max(1, maxc / 80)
-                    o["links"] = Array(liens.prefix(lim))
-                    if liens.count > lim { o["total_links"] = liens.count; o["truncated"] = true }
-                } else {
-                    let (txt, coupe) = tronquer(brut, maxc)
-                    o[format == "html" ? "html" : "text"] = txt
-                    if coupe { o["truncated"] = true; o["length"] = brut.count }
-                }
+                let lim = max(1, maxc / 80)
+                o["links"] = Array(liens.prefix(lim))
+                if liens.count > lim { o["total_links"] = liens.count; o["truncated"] = true }
+            } else if format == "text" {
+                let l = (try? JSONSerialization.jsonObject(with: Data(brut.utf8))) as? [Any] ?? []
+                let n = (l.first as? Int) ?? 0, txt = l.count > 1 ? l[1] as? String ?? "" : ""
+                o["text"] = txt
+                if n > txt.count { o["truncated"] = true; o["length"] = n }
+            } else {
+                let (txt, coupe) = tronquer(brut, maxc)
+                o["html"] = txt
+                if coupe { o["truncated"] = true; o["length"] = brut.count }
             }
             return o
+        }.map { ref, r in
+            switch r {
+            case .success(let o): return o
+            case .failure(let e): var o = ref.json; o["error"] = e.description; return o
+            }
         }
         return ["pages": pages]
     }
@@ -345,12 +312,13 @@ enum Handlers {
     static func executerJS(_ a: JSON) throws -> Any {
         let code = try a.req("script")
         let cibles = try refs(a)
-        let res: [JSON] = try parOnglet(cibles, "set v to (do JavaScript \(AS.lit(AS.jsWrapper(code))) in t)\nset res to \"\"\ntry\nset res to v\nend try").map { ref, r in
+        let script = AS.jsWrapper(code)
+        let res: [JSON] = parOnglet(cibles) { try AE.js(script, in: $0, timeout: 20) }.map { ref, r in
             var o = ref.json
             switch r {
             case .failure(let e): o["ok"] = false; o["error"] = e.description
             case .success(let d):
-                guard var s = d.string, s.hasPrefix("§") else {
+                guard var s = d, s.hasPrefix("§") else {
                     o["ok"] = false
                     o["error"] = "no result: JavaScript syntax error, page without a document, or the \"Allow JavaScript from Apple Events\" setting is off"
                     return o

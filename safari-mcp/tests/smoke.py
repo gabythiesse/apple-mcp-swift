@@ -84,7 +84,7 @@ try:
     rpc("notifications/initialized", notify=True)
     check(rpc("ping")["result"] == {}, "ping")
     tools = {t["name"]: t["annotations"] for t in rpc("tools/list")["result"]["tools"]}
-    check(len(tools) == 14, f"tools/list: {len(tools)} tools")
+    check(len(tools) == 15, f"tools/list: {len(tools)} tools")
     ro = {n for n, a in tools.items() if a["readOnlyHint"]}
     check(ro == {"list_tabs", "read_page", "list_reading_list", "list_bookmarks", "list_history", "list_tab_groups"}, f"readOnly: {sorted(ro)}")
     check([n for n, a in tools.items() if a["destructiveHint"]] == ["close", "delete_from_reading_list", "delete_history", "delete_tab_groups"], "destructive: close and the three deletions")
