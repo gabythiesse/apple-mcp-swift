@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>apple-mcp-swift social preview, app list</title>
+<style>
+  /* Flat, Apple-style. Accent colors sampled from the macOS app icons in ./icons; everything else neutral. */
+  :root {
+    --bg: #1c1c1e;                       /* macOS system dark gray */
+    --fg: #f5f5f7;
+    --fg2: rgba(245,245,247,.60);
+    --fg3: rgba(245,245,247,.40);
+    --reminders: #ff9f0a; --calendar: #f83848; --mail: #1878f8;
+    --notes: #f8d838; --contacts: #68d878; --safari: #48a8f8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 640px; overflow: hidden; }
+  body {
+    font-family: -apple-system, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: var(--fg); background: var(--bg); position: relative;
+  }
+  .wrap { position: absolute; inset: 0; padding: 72px 80px 64px; display: flex; flex-direction: column; justify-content: space-between; }
+
+  .repo { font-size: 21px; font-weight: 400; color: var(--fg3); letter-spacing: -0.005em; }
+  .repo b { color: var(--fg2); font-weight: 500; }
+
+  h1 { font-size: 80px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.04; margin-top: 22px; }
+  .apps-line { margin-top: 18px; font-size: 34px; font-weight: 600; letter-spacing: -0.012em; line-height: 1.25; }
+  .apps-line .sep { color: var(--fg3); font-weight: 400; }
+  .r { color: var(--reminders); } .c { color: var(--calendar); } .m { color: var(--mail); }
+  .n { color: var(--notes); } .k { color: var(--contacts); } .s { color: var(--safari); }
+  .tag { margin-top: 14px; font-size: 26px; font-weight: 400; color: var(--fg2); line-height: 1.3; letter-spacing: -0.005em; }
+
+  .footer { display: flex; flex-direction: column; gap: 34px; }
+  .apps { display: flex; justify-content: space-between; align-items: flex-end; padding: 0 20px; }
+  .app { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 120px; }
+  .icon { width: 96px; height: 96px; display: block; }
+  .app span { font-size: 18px; font-weight: 500; color: var(--fg); letter-spacing: -0.005em; }
+
+  .meta { display: flex; justify-content: center; gap: 0; font-size: 17px; font-weight: 500; color: var(--fg3); letter-spacing: 0.01em; }
+  .meta span + span::before { content: "·"; margin: 0 14px; color: var(--fg3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <div class="repo">gabythiesse / <b>apple-mcp-swift</b></div>
+    <h1>MCP servers for Apple apps</h1>
+    <div class="apps-line">
+      <span class="r">Reminders</span><span class="sep">, </span><span class="c">Calendar</span><span class="sep">, </span><span class="m">Mail</span><span class="sep">, </span><span class="n">Notes</span><span class="sep">, </span><span class="k">Contacts</span><span class="sep"> &amp; </span><span class="s">Safari</span>
+    </div>
+    <div class="tag">Native Swift. Every permission granted once, then drive your Mac from your phone.</div>
+  </div>
+
+  <div class="footer">
+    <div class="apps">
+      <div class="app"><img class="icon" src="icons/reminders.png" alt="Reminders"><span>Reminders</span></div>
+      <div class="app"><img class="icon" src="icons/calendar.png" alt="Calendar"><span>Calendar</span></div>
+      <div class="app"><img class="icon" src="icons/mail.png" alt="Mail"><span>Mail</span></div>
+      <div class="app"><img class="icon" src="icons/notes.png" alt="Notes"><span>Notes</span></div>
+      <div class="app"><img class="icon" src="icons/contacts.png" alt="Contacts"><span>Contacts</span></div>
+      <div class="app"><img class="icon" src="icons/safari.png" alt="Safari"><span>Safari</span></div>
+    </div>
+    <div class="meta"><span>77 tools</span><span>Swift 6</span><span>macOS 14+</span><span>MIT</span></div>
+  </div>
+</div>
+</body>
+</html>

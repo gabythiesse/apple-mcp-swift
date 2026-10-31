@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>apple-mcp-swift social preview</title>
+<style>
+  /* Flat, Apple-style. Accent colors sampled from the macOS app icons in ./icons; everything else neutral. */
+  :root {
+    --bg: #1c1c1e;                       /* macOS system dark gray */
+    --card: #2c2c2e;
+    --line: rgba(245,245,247,.12);
+    --fg: #f5f5f7;
+    --fg2: rgba(245,245,247,.62);
+    --fg3: rgba(245,245,247,.40);
+    --reminders: #ff9f0a; --calendar: #f83848; --mail: #1878f8;
+    --notes: #f8d838; --contacts: #68d878; --safari: #48a8f8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 640px; overflow: hidden; }
+  body {
+    font-family: -apple-system, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: var(--fg); background: var(--bg); position: relative;
+  }
+  .wrap { position: absolute; inset: 0; padding: 64px 72px; display: flex; gap: 56px; }
+
+  /* Left: the story */
+  .left { width: 500px; display: flex; flex-direction: column; justify-content: space-between; }
+  .repo { font-size: 20px; color: var(--fg3); }
+  .repo b { color: var(--fg2); font-weight: 500; }
+  h1 { font-size: 58px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.05; margin-top: 18px; }
+  .tag .m { color: var(--mail); } .tag .n { color: var(--notes); } .tag .r { color: var(--reminders); }
+  .tag span { font-weight: 600; }
+  .tag { margin-top: 16px; font-size: 22px; color: var(--fg2); line-height: 1.35; }
+
+  .phone { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  .bubble {
+    background: var(--mail); color: #fff; font-size: 23px; line-height: 1.32; font-weight: 500;
+    padding: 18px 22px; border-radius: 24px 24px 6px 24px; max-width: 470px; letter-spacing: -0.005em;
+  }
+  .from { font-size: 15px; color: var(--fg3); font-weight: 500; display: flex; align-items: center; gap: 7px; }
+  .from svg { width: 11px; height: 17px; }
+
+  /* Right: what happens on the Mac */
+  .right { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 18px; position: relative; }
+  .right::before { content: ""; position: absolute; left: 47px; top: 70px; bottom: 70px; width: 2px; background: var(--line); }
+  .step { display: flex; align-items: center; gap: 22px; position: relative; }
+  .icon { width: 96px; height: 96px; flex: none; display: block; }
+  .card {
+    flex: 1; background: var(--card); border-radius: 18px; padding: 18px 22px;
+    display: flex; flex-direction: column; gap: 6px; border-left: 5px solid var(--accent);
+  }
+  .card .app { font-size: 15px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
+  .card .main { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
+  .card .sub { font-size: 17px; color: var(--fg2); }
+  .chip { font-size: 13px; font-weight: 700; padding: 3px 7px; border-radius: 6px; background: #e5484d; color: #fff; letter-spacing: 0.03em; }
+  .ring { width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid var(--reminders); flex: none; }
+  .mail { --accent: var(--mail); } .notes { --accent: var(--notes); } .rem { --accent: var(--reminders); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="left">
+    <div>
+      <div class="repo">gabythiesse / <b>apple-mcp-swift</b></div>
+      <h1>Your Mac files the paperwork.</h1>
+      <div class="tag">One sentence to Claude. <span class="m">Mail</span>, <span class="n">Notes</span> and <span class="r">Reminders</span> do the rest, even while you're out.</div>
+    </div>
+    <div class="phone">
+      <div class="bubble">Got the invoice for my headphones: file it and remind me before the return deadline.</div>
+      <div class="from">
+        <svg viewBox="0 0 11 17" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="0.7" y="0.7" width="9.6" height="15.6" rx="2.2"/><line x1="4" y1="13.6" x2="7" y2="13.6"/></svg>
+        Sent from your phone · your Mac does the work
+      </div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="step mail">
+      <img class="icon" src="icons/mail.png" alt="Mail">
+      <div class="card">
+        <div class="app">Mail · found</div>
+        <div class="main">Your order: wireless headphones</div>
+        <div class="sub">Invoice.pdf · €249.00 · Oct 31</div>
+      </div>
+    </div>
+    <div class="step notes">
+      <img class="icon" src="icons/notes.png" alt="Notes">
+      <div class="card">
+        <div class="app">Notes · filed</div>
+        <div class="main"><span class="chip">PDF</span> Headphones, €249.00</div>
+        <div class="sub">Invoices › 2026 · 2-year warranty until Oct 2028</div>
+      </div>
+    </div>
+    <div class="step rem">
+      <img class="icon" src="icons/reminders.png" alt="Reminders">
+      <div class="card">
+        <div class="app">Reminders · set</div>
+        <div class="main"><span class="ring"></span> Last day to return the headphones</div>
+        <div class="sub">Sun, Nov 29 · 9:00 AM · Purchases</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
