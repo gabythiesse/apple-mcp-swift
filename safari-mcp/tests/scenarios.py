@@ -176,8 +176,13 @@ def sc_gdocs(t):
 def ck_gdocs(r):
     i = r[0] if isinstance(r[0], dict) else {}
     canvas = "canvas" in i.get("page_type", "")
-    typed = isinstance(r[1], dict) and "error" not in r[1]
-    return (canvas and typed, f"page_type {i.get('page_type')!r}; type: {str(r[1])[:160]}")
+    sent = isinstance(r[1], dict) and "error" not in r[1]
+    # le texte d'un document Google Docs est dessiné dans un canvas : seul un document modifiable (compte connecté) le prouverait
+    written = sent and "Bonjour" in json.dumps(r[1], ensure_ascii=False)
+    note = f"page_type {i.get('page_type')!r}; native keystrokes {'sent' if sent else 'not sent'}: {str(r[1])[:120]}"
+    if sent and not written:
+        note += " — not proven: a logged-out private window only gets a view-only document"
+    return (canvas and written, note)
 
 
 SCENARIOS = [
