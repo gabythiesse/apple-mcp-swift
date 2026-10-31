@@ -126,7 +126,7 @@ try:
     n = call("navigate", {"actions": [{"window_id": W, "index": 1, "url": P1}, {"window_id": W, "index": 2, "action": "reload"}], "wait": True})["results"]
     check(all(x["ok"] for x in n) and [x.get("title") for x in n] == ["[mcp-test] page 1", "[mcp-test] page 2"], f"batch url + reload: {n}")
     n = call("navigate", {"actions": [{"window_id": W, "index": 2, "action": "activate"}]})["results"][0]
-    check(n["ok"] and call("list_tabs", {"window_id": W})["tabs"][1].get("actif") is True, "activate tab 2")
+    check(n["ok"] and call("list_tabs", {"window_id": W})["tabs"][1].get("active") is True, "activate tab 2")
     n = call("navigate", {"actions": [{"window_id": W, "index": 1, "action": "voler"}]}, expect_error=True)
     check("unknown action" in n, "unknown action refused")
 
