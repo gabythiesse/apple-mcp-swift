@@ -4,7 +4,7 @@
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![77 tools](https://img.shields.io/badge/tools-77-blue) ![MIT](https://img.shields.io/badge/license-MIT-green)
 
-[Version française](README.fr.md)
+[Version française](README.fr.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 Six [Model Context Protocol](https://modelcontextprotocol.io) servers that let Claude, Codex or any MCP client drive the Apple apps on your Mac: create reminders with subtasks, find a free slot, search your mail in milliseconds, file notes, merge duplicate contacts, read a Safari tab.
 

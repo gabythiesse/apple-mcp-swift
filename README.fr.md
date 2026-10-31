@@ -2,7 +2,7 @@
 
 **Six serveurs MCP natifs en Swift pour piloter Rappels, Calendrier, Mail, Notes, Contacts et Safari. Zéro dépendance. Toutes les autorisations macOS données une fois, à l'installation : ensuite tu pilotes ton Mac depuis ton téléphone.**
 
-[English version](README.md)
+[English version](README.md) · [Contribuer](CONTRIBUTING.md) · [Sécurité](SECURITY.md)
 
 Six serveurs [Model Context Protocol](https://modelcontextprotocol.io) qui permettent à Claude, Codex ou n'importe quel client MCP de piloter les apps Apple de ton Mac : créer des rappels avec sous-tâches, trouver un créneau libre, chercher dans tes mails en quelques millisecondes, ranger des notes, fusionner des contacts en double, lire un onglet Safari.
 
