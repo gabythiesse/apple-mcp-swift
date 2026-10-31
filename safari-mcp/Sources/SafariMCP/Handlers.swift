@@ -652,7 +652,7 @@ enum Handlers {
         let w = try Page.call("watch", [:], in: t)["watch"] as? Int ?? 0
         let prep = try Native.preparer(t)
         try Native.activer()
-        for k in touches { try Native.key(k) }
+        for k in touches { try Native.key(k); Thread.sleep(forTimeInterval: 0.05) }
         var o = try Page.call("settle", ["watch": w], in: t, timeout: 4)
         o["keys"] = touches
         o["activated_safari"] = true

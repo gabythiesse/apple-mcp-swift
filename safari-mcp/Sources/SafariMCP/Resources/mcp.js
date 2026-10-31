@@ -941,7 +941,7 @@
   // Démarre l'observation : mutations (document, racine shadow et cadre de la cible), URL, focus, requêtes, état de la cible
   M.watches = new Map(); M.watchNext = 1;
   function watch(el) {
-    var w = { added: [], attrs: [], n: 0, t0: now(), last: now(), url: location.href, focus: deepActive(), net: M.net.inflight, netLast: M.net.last, el: el, dlg: M.dialogCount };
+    var w = { added: [], attrs: [], n: 0, t0: now(), last: now(), url: location.href, focus: deepActive(), net: M.net.inflight, netLast: M.net.last, el: el, dlg: M.dialogCount, sel: selKey() };
     if (el) w.state = stateKey(el);
     var cb = function (list) {
       w.n += list.length; w.last = now();
@@ -962,6 +962,10 @@
     return id;
   }
   M.watch = watch;
+  // Sélection courante (Cmd+A, flèches : la page change sans muter le DOM)
+  function selKey() {
+    try { var s = deepActive() && deepActive().ownerDocument.getSelection(); return s ? [String(s).length, s.anchorOffset, s.focusOffset, s.anchorNode && s.anchorNode.nodeName].join('|') : ''; } catch (e) { return ''; }
+  }
   function stateKey(el) {
     try { return [el.checked, el.value, clip(el.textContent, 100), el.getAttribute('aria-checked'), el.getAttribute('aria-expanded'), el.getAttribute('aria-pressed'), el.getAttribute('aria-selected'), el.isConnected].join('|'); } catch (e) { return ''; }
   }
@@ -1040,7 +1044,9 @@
       var netActivity = M.net.inflight !== w.net || M.net.last !== w.netLast;
       if (netActivity) o.network = true;
       if (expect) o.expect_met = met;
-      o.reacted = expect ? met : (w.n > 0 || o.url !== undefined || stateChanged || netActivity || M.dialogCount > w.dlg);
+      var selChanged = selKey() !== w.sel;
+      if (selChanged) { var sx = String(deepActive().ownerDocument.getSelection() || ''); if (sx) o.selection = clip(sx, 120); }
+      o.reacted = expect ? met : (w.n > 0 || o.url !== undefined || stateChanged || netActivity || M.dialogCount > w.dlg || selChanged);
       return o;
     };
   }

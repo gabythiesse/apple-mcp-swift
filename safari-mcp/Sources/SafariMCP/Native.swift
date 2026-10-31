@@ -83,6 +83,7 @@ enum Native {
         }
         let f = try axWindow(t.fenetre)
         AXUIElementPerformAction(f, kAXRaiseAction as CFString)
+        AX.set(f, kAXMainAttribute, kCFBooleanTrue)
         guard let wa = webArea(f), let r = frame(wa) else { throw MCPError("web area not found in the Accessibility tree") }
         return (r, bascule)
     }
@@ -124,6 +125,10 @@ enum Native {
             app.activate()
             for _ in 0..<40 where NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier { Thread.sleep(forTimeInterval: 0.025) }
             Thread.sleep(forTimeInterval: 0.08)
+        }
+        // garde-fou : de vrais événements envoyés ailleurs iraient dans une autre app
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
+            throw MCPError("Safari could not be brought to the front: real events not sent")
         }
     }
 
