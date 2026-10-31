@@ -1131,6 +1131,8 @@
     var el = target(a);
     var hidden = hiddenReason(el);
     if (hidden && !a.force) throw new Error('target is hidden (' + hidden + '): ' + brief(el));
+    // désactivé : le serveur réessaie jusqu'au délai (un menu se remplit pendant que l'app démarre)
+    if (!a.force && (el.disabled || el.getAttribute('aria-disabled') === 'true')) throw new Error('target is disabled: ' + brief(el));
     bringIntoView(el);
     var id = watch(el), before = brief(el);
     var covered = clickSeq(el, a);

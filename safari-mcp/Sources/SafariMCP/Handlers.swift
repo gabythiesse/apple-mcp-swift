@@ -341,7 +341,7 @@ enum Handlers {
                 var t = (try? textePDF(ref, url)) ?? ""
                 if t.isEmpty { t = try AE.get(AE.prop("ctxt", of: AE.tab(ref)))?.string ?? "" }
                 guard !t.isEmpty else { throw MCPError("no readable text in this page (PDF without a text layer, or an image)") }
-                var o: JSON = ["title": titre, "url": url, "text": String(t.dropFirst(offset).prefix(maxc))]
+                var o: JSON = ["title": titre, "url": url, "page_type": "pdf", "text": String(t.dropFirst(offset).prefix(maxc))]
                 if t.count > maxc + offset { o["truncated"] = true }
                 if t.count > maxc { o["length"] = t.count }
                 return o
@@ -504,6 +504,7 @@ enum Handlers {
             catch is PageNavigated { return try apresNavigation(t, avant) }
             catch let e as MCPError {
                 let absent = e.description.hasPrefix("no element") || e.description.hasPrefix("near: no visible") || e.description.hasPrefix("nothing at")
+                    || e.description.hasPrefix("target is disabled") || e.description.hasPrefix("target is hidden")
                 if absent && Date() < fin { Thread.sleep(forTimeInterval: 0.05); continue }
                 // page remplacée pendant l'appel : la bibliothèque a été réinjectée dans la nouvelle page
                 if e.description.contains("watch lost") { return try apresNavigation(t, avant) }
