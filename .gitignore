@@ -1,0 +1,15 @@
+# Secrets locaux de signature (clé privée dans le trousseau, mot de passe du trousseau, certificat propre à chaque Mac)
+.signature/trousseau.motdepasse
+.signature/identite.sha1
+.signature/AppleMCP.cer
+.signature/AppleMCP.pem
+.signature/openssl.cnf
+# Produits de build
+.build/
+*/.build/
+bin/
+*/bin/
+*.cstemp
+*/tests/*.log
+*/sondes/.bin/
+.DS_Store

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.applemcp.mcp</string>
+	<key>CFBundleName</key>
+	<string>AppleMCP</string>
+	<key>CFBundleDisplayName</key>
+	<string>AppleMCP</string>
+	<key>CFBundleExecutable</key>
+	<string>AppleMCP</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>AppleMCP pilote Rappels pour les clients MCP.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>AppleMCP pilote Rappels pour les clients MCP.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>AppleMCP pilote Calendrier pour les clients MCP.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>AppleMCP pilote Calendrier pour les clients MCP.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>AppleMCP pilote Contacts pour les clients MCP.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>AppleMCP pilote Mail, Notes, Safari et Contacts pour les clients MCP.</string>
+</dict>
+</plist>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>dev.applemcp.contacts-mcp</string>
+    <key>CFBundleName</key>
+    <string>Contacts MCP</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Le serveur MCP Contacts pilote l'app Contacts pour les notes des fiches et « Ma carte ».</string>
+    <key>NSContactsUsageDescription</key>
+    <string>Le serveur MCP Contacts lit et modifie tes contacts à la demande de Claude.</string>
+</dict>
+</plist>
