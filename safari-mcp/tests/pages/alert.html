@@ -1,0 +1,8 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>[mcp-test] alert</title></head>
+<body><h1>[mcp-test] dialogs</h1>
+<button id="a" onclick="alert('[mcp-test] hello'); document.getElementById('out').textContent = 'after alert'">Show alert</button>
+<button id="c" onclick="document.getElementById('out').textContent = confirm('[mcp-test] sure?') ? 'confirmed' : 'cancelled'">Ask confirm</button>
+<button id="p" onclick="document.getElementById('out').textContent = 'name: ' + prompt('[mcp-test] name?', 'default')">Ask prompt</button>
+<p id="out"></p>
+<script>window.addEventListener('beforeunload', e => { e.preventDefault(); e.returnValue = 'stay'; });</script>
+</body></html>

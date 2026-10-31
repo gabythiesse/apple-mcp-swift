@@ -19,6 +19,25 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "bin/SafariMCP")
 P1 = "file://" + os.path.join(ROOT, "tests", "mcp-test-1.html")
 P2 = "file://" + os.path.join(ROOT, "tests", "mcp-test-2.html")
+PAGES = "file://" + os.path.join(ROOT, "tests", "pages")
+
+# Pages locales servies en http : 127.0.0.1 et localhost sont deux origines, ce qui donne une iframe cross-origin sans réseau
+import http.server
+import socketserver
+import threading
+
+
+class Quiet(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *a, **k):
+        super().__init__(*a, directory=os.path.join(ROOT, "tests"), **k)
+
+    def log_message(self, *a):
+        pass
+
+
+httpd = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Quiet)
+threading.Thread(target=httpd.serve_forever, daemon=True).start()
+HTTP = f"http://127.0.0.1:{httpd.server_address[1]}/pages"
 
 proc = subprocess.Popen([BIN], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
 next_id = 0
@@ -84,9 +103,9 @@ try:
     rpc("notifications/initialized", notify=True)
     check(rpc("ping")["result"] == {}, "ping")
     tools = {t["name"]: t["annotations"] for t in rpc("tools/list")["result"]["tools"]}
-    check(len(tools) == 15, f"tools/list: {len(tools)} tools")
+    check(len(tools) == 18, f"tools/list: {len(tools)} tools")
     ro = {n for n, a in tools.items() if a["readOnlyHint"]}
-    check(ro == {"list_tabs", "read_page", "list_reading_list", "list_bookmarks", "list_history", "list_tab_groups"}, f"readOnly: {sorted(ro)}")
+    check(ro == {"list_tabs", "read_page", "page_info", "snapshot", "find", "list_reading_list", "list_bookmarks", "list_history", "list_tab_groups"}, f"readOnly: {sorted(ro)}")
     check([n for n, a in tools.items() if a["destructiveHint"]] == ["close", "delete_from_reading_list", "delete_history", "delete_tab_groups"], "destructive: close and the three deletions")
     check([n for n, a in tools.items() if a["openWorldHint"]] == ["run_js"], "openWorld: run_js only")
     check("add_to_reading_list" in tools, "add_to_reading_list present (tested in a probe, not in smoke)")
@@ -131,8 +150,10 @@ try:
     check("unknown action" in n, "unknown action refused")
 
     print("== Read page")
-    p = call("read_page", {"tabs": [{"window_id": W, "index": 1}, {"window_id": W, "index": 2}]})["pages"]
+    p = call("read_page", {"tabs": [{"window_id": W, "index": 1}, {"window_id": W, "index": 2}], "format": "text"})["pages"]
     check("marqueur-mcp-test-1" in p[0].get("text", "") and "marqueur-mcp-test-2" in p[1].get("text", ""), "text of 2 tabs in one call")
+    m = call("read_page", {"tabs": [{"window_id": W, "index": 1}]})
+    check(m.get("markdown", "").startswith("# [mcp-test] page 1") and "marqueur-mcp-test-1" in m["markdown"], f"markdown by default: {m}")
     l = call("read_page", {"tabs": [{"window_id": W, "index": 1}], "format": "links"})
     check(l.get("links") == [{"text": "link to 2", "url": P2}], f"links: {l.get('links')}")
     h = call("read_page", {"tabs": [{"window_id": W, "index": 1}], "format": "html"})
@@ -144,7 +165,7 @@ try:
     e = call("read_page", {"tabs": [{"window_id": W, "index": 99}]}, expect_error=True)
     check("not found" in e, f"missing tab → error: {e[:80]}")
     e = call("read_page", {"tabs": [{"window_id": W, "index": 1}, {"window_id": W, "index": 99}]})["pages"]
-    check("error" in e[1] and "text" in e[0], "batch: per-item error")
+    check("error" in e[1] and "markdown" in e[0], "batch: per-item error")
 
     print("== JavaScript")
     j = call("run_js", {"script": "document.title", "tabs": [{"window_id": W, "index": 1}, {"window_id": W, "index": 2}]})["results"]
@@ -169,12 +190,37 @@ try:
     j2 = call("run_js", {"script": "'x'.repeat(30000)", "max_chars": 1000, "offset": 29500, "tabs": [{"window_id": W, "index": 1}]})
     check(j.get("length") == 30000 and len(j2["result"]) == 500, "run_js truncation + offset")
 
+    print("== Perception (local pages)")
+    r = call("open", {"urls": [HTTP + "/frames.html", PAGES + "/big.html"], "window_id": W, "wait": True})
+    F, B = {"window_id": W, "index": r["tabs"][0]["index"]}, {"window_id": W, "index": r["tabs"][1]["index"]}
+    time.sleep(0.3)
+    i = call("page_info", F)
+    check(i.get("iframes") == 2 and i.get("cross_origin_iframes") == 1 and i.get("shadow_roots") == 1, f"page_info frames: {i}")
+    sn = call("snapshot", F)
+    txt = sn.get("text", "")
+    check('button "frame button"' in txt and 'button "shadow button"' in txt and "cross-origin" in txt, f"snapshot crosses same-origin iframe and shadow DOM, flags cross-origin: {txt}")
+    fd = call("find", dict(F, text="SHADOW buttön"))["matches"]
+    check(fd and fd[0]["name"] == "shadow button" and fd[0]["visible"] is True, f"find ignores case and accents: {fd[:1]}")
+    fd = call("find", dict(F, near="frame field", role="button"))["matches"]
+    check(fd and fd[0]["name"] == "frame button", f"find near: {fd[:1]}")
+    t0 = time.time()
+    sn = call("snapshot", dict(B, max_chars=2000))
+    ms = (time.time() - t0) * 1000
+    check(sn.get("elements", 0) >= 5000 and sn.get("length", 0) > 2000 and sn.get("next_offset"), f"snapshot 10000 elements: {sn.get('elements')} lines, paginated")
+    check(ms < 500, f"snapshot 10000 elements in {ms:.0f} ms (< 500)")
+    sn2 = call("snapshot", dict(B, max_chars=2000, offset=sn["next_offset"]))
+    check(sn2.get("text", "").split("\n")[0].split(" ")[0].startswith("e") and sn2.get("offset") == sn["next_offset"], "snapshot offset continues")
+    ref = txt.split('button "top button"')[0].split("\n")[-1].split(" ")[0]
+    call("run_js", {"script": "document.getElementById('top').remove()", "tabs": [F]})
+    e = call("snapshot", dict(F, ref=ref), expect_error=True)
+    check("stale ref" in e, f"stale ref → clear error: {e}")
+
     print("== Close tabs")
     f = call("close", {"tabs": [{"window_id": W, "index": 3, "expected_url": "https://pas-celle-ci"}]})
     check(f["closed"] == 0 and "different" in f["tabs"][0].get("error", ""), "expected_url protects the tab")
     f = call("close", {"tabs": [{"window_id": W, "index": 3}, {"window_id": W, "index": 4, "expected_url": P2}]})
     check(f["closed"] == 2, f"2 tabs closed in a batch (descending order): {f}")
-    check(len(call("list_tabs", {"window_id": W})["tabs"]) == 2, "2 tabs left")
+    check(len(call("list_tabs", {"window_id": W})["tabs"]) == 4, "4 tabs left")
 
     print("== File reads (filtered on the test marker)")
     check(call("list_bookmarks", {"text": "[mcp-test]"})["bookmarks"] == [], "bookmarks: no test item")
@@ -203,6 +249,7 @@ finally:
     check(visibles() == avant, "visible windows identical to before the test")
     proc.stdin.close()
     proc.wait(timeout=10)
+    httpd.shutdown()
 
 total = time.time() - debut
 lents = [(n, ms) for i, (n, ms, _) in enumerate(journal) if ms > 500]

@@ -1,5 +1,6 @@
 // Logique des outils : AppleScript pour les fenêtres et onglets, fichiers en lecture seule pour le reste
 import Foundation
+import PDFKit
 
 enum Handlers {
 
@@ -259,15 +260,16 @@ enum Handlers {
 
     static func lirePage(_ a: JSON) throws -> Any {
         let cibles = try refs(a)
-        let format = a.nonEmpty("format") ?? "text"
+        let format = a.nonEmpty("format") ?? "markdown"
         let maxc = max(100, a.int("max_chars") ?? 8000), offset = max(0, a.int("offset") ?? 0)
+        if format == "markdown" { return try lireMarkdown(a, cibles, maxc, offset) }
         let js: String
         switch format {
         // Texte découpé dans la page : seuls max_chars caractères traversent l'Apple Event (text of t envoyait tout)
         case "text": js = AS.jsWrapper("var s=document.body?document.body.innerText:'';return [s.length,s.slice(\(offset),\(offset + maxc))]")
         case "html": js = AS.jsWrapper("document.documentElement.outerHTML")
         case "links": js = AS.jsWrapper("[...document.links].slice(0,500).map(a=>[(a.innerText||a.title||'').trim().replace(/\\s+/g,' ').slice(0,120),a.href])")
-        default: throw MCPError("unknown format: \(format) (text, links, html)")
+        default: throw MCPError("unknown format: \(format) (markdown, text, links, html)")
         }
         let pages: [JSON] = parOnglet(cibles) { ref -> JSON in
             let (titre, url) = try AE.titleURL(ref)
@@ -319,6 +321,55 @@ enum Handlers {
             return pages[0].filter { $0.key != "window_id" && $0.key != "index" }
         }
         return ["pages": pages]
+    }
+
+    /// Format markdown : contenu principal (ou selector, ou full) converti par mcp.js ; texte de Safari pour un PDF
+    private static func lireMarkdown(_ a: JSON, _ cibles: [TabRef], _ maxc: Int, _ offset: Int) throws -> Any {
+        var args = passer(a, ["selector", "full", "links"])
+        args["max_chars"] = maxc; args["offset"] = offset
+        let pages: [JSON] = parOnglet(cibles) { ref -> JSON in
+            do {
+                var o = try Page.call("markdown", args, in: ref)
+                if o["pdf"] as? Bool == true { throw MCPError("no result: PDF") }
+                o.removeValue(forKey: "ms")
+                if let t = o.removeValue(forKey: "text") { o["markdown"] = t }
+                if let l = o["length"] as? Int, l > offset + ((o["markdown"] as? String)?.count ?? 0) { o["truncated"] = true }
+                return o
+            } catch let e as MCPError where e.description.contains("helper library") || e.description.contains("no result") {
+                // PDF : texte extrait par PDFKit des octets du fichier ; sinon le texte que Safari donne de la page
+                let (titre, url) = try AE.titleURL(ref)
+                var t = (try? textePDF(ref, url)) ?? ""
+                if t.isEmpty { t = try AE.get(AE.prop("ctxt", of: AE.tab(ref)))?.string ?? "" }
+                guard !t.isEmpty else { throw MCPError("no readable text in this page (PDF without a text layer, or an image)") }
+                var o: JSON = ["title": titre, "url": url, "text": String(t.dropFirst(offset).prefix(maxc))]
+                if t.count > maxc + offset { o["truncated"] = true }
+                if t.count > maxc { o["length"] = t.count }
+                return o
+            }
+        }.map { ref, r in
+            switch r {
+            case .success(let o): return cibles.count == 1 ? o : o.merging(ref.json) { a, _ in a }
+            case .failure(let e): return cibles.count == 1 ? ["error": e.description] : ["error": e.description].merging(ref.json) { a, _ in a }
+            }
+        }
+        if cibles.count == 1 {
+            if let e = pages[0]["error"] as? String { throw MCPError(e) }
+            return pages[0]
+        }
+        return ["pages": pages]
+    }
+
+    /// Texte d'un PDF ouvert dans un onglet : fichier local lu directement, sinon octets relus par la page (fetch, mêmes cookies)
+    private static func textePDF(_ ref: TabRef, _ url: String) throws -> String {
+        let donnees: Data
+        if let u = URL(string: url), u.isFileURL { donnees = try Data(contentsOf: u) }
+        else {
+            let o = try Page.call("pdf_data", [:], in: ref, timeout: 30)
+            guard let b = o["b64"] as? String, let d = Data(base64Encoded: b) else { throw MCPError("could not read the PDF") }
+            donnees = d
+        }
+        guard let doc = PDFDocument(data: donnees) else { throw MCPError("not a readable PDF") }
+        return (0..<doc.pageCount).compactMap { doc.page(at: $0)?.string }.joined(separator: "\n\n")
     }
 
     /// Dernier résultat tronqué de run_js : offset relit la suite sans relancer le script
@@ -382,6 +433,47 @@ enum Handlers {
         let m = (try? AE.js(js, in: ref, timeout: 2)) ?? nil
         if let m, m != "ok", !m.hasPrefix("EvalError") { return "JavaScript syntax error: " + m.replacingOccurrences(of: "SyntaxError: ", with: "") }
         return "JavaScript syntax error, or the page has no document"
+    }
+
+    // MARK: - Perception (snapshot, find, page_info) : bibliothèque mcp.js
+
+    /// Onglet visé par window_id + index, sinon l'onglet actif de la fenêtre de premier plan
+    static func onglet(_ a: JSON) throws -> TabRef {
+        if let w = a.int("window_id"), let i = a.int("index") { return TabRef(fenetre: w, index: i) }
+        if a.has("window_id") || a.has("index") { throw MCPError("give both window_id and index, or neither for the active tab") }
+        return try AS.currentTab()
+    }
+
+    /// Arguments transmis tels quels à la page (seulement les clés connues, valeurs JSON)
+    static func passer(_ a: JSON, _ cles: [String]) -> JSON {
+        var o: JSON = [:]
+        for k in cles { if let v = a[k], !(v is NSNull) { o[k] = v } }
+        return o
+    }
+
+    static func snapshot(_ a: JSON) throws -> Any {
+        let t = try onglet(a)
+        var o = try Page.call("snapshot", passer(a, ["all", "viewport_only", "selector", "ref", "max_chars", "offset", "urls"]), in: t)
+        o.removeValue(forKey: "ms")
+        return o
+    }
+
+    static func trouver(_ a: JSON) throws -> Any {
+        let t = try onglet(a)
+        return try Page.call("find", passer(a, ["text", "role", "selector", "label", "near", "within", "limit"]), in: t)
+    }
+
+    static func pageInfo(_ a: JSON) throws -> Any {
+        let t = try onglet(a)
+        do { return try Page.call("page_info", [:], in: t) }
+        catch let e as MCPError where e.description.contains("helper library") || e.description.contains("no result") {
+            // Visionneuse PDF ou image : pas de document HTML pour la bibliothèque
+            let (titre, url) = try AE.titleURL(t)
+            var o: JSON = ["url": url, "title": titre]
+            o["page_type"] = url.lowercased().contains(".pdf") ? "pdf" : "viewer (no HTML document)"
+            o["note"] = "JavaScript cannot run in this page; read_page format text uses Safari's own text extraction"
+            return o
+        }
     }
 
     // MARK: - Liste de lecture et favoris (Bookmarks.plist, lecture seule)

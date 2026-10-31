@@ -13,10 +13,12 @@ private func arr(_ items: JSON, _ d: String) -> JSON { ["type": "array", "items"
 private let dateHelp = "YYYY-MM-DD or YYYY-MM-DDTHH:MM (local time)"
 private let ref: JSON = obj(["window_id": n("Window identifier (see list_tabs)"), "index": n("Tab index in the window, starting at 1")], ["window_id", "index"])
 private let refs = arr(ref, "Target tabs (active tab of the front window if omitted)")
+/// Un seul onglet visé par les outils de page : window_id + index, sinon l'onglet actif de la fenêtre de premier plan
+private let tabProps: JSON = ["window_id": n("Window of the tab (with index; active tab of the front window if omitted)"), "index": n("Tab index (with window_id)")]
 
 /// Annotations MCP : seules les lectures sont readOnly, seule la fermeture est destructive,
 /// seul run_js est openWorld (un script peut soumettre un formulaire ou envoyer des données)
-private let lectures: Set<String> = ["list_tabs", "read_page", "list_reading_list", "list_bookmarks", "list_history", "list_tab_groups"]
+private let lectures: Set<String> = ["list_tabs", "read_page", "page_info", "snapshot", "find", "list_reading_list", "list_bookmarks", "list_history", "list_tab_groups"]
 private func annotations(_ nom: String) -> JSON {
     ["readOnlyHint": lectures.contains(nom), "destructiveHint": nom == "close" || nom.hasPrefix("delete_"), "openWorldHint": nom == "run_js"]
 }
@@ -50,9 +52,11 @@ enum Tools {
          "inputSchema": obj(["tabs": arr(obj(["window_id": n("Window"), "index": n("Tab"), "expected_url": s("Only close if the URL starts with this")], ["window_id", "index"]), "Tabs to close"),
                              "windows": arr(n("Identifier"), "Windows to close with all their tabs")])],
         ["name": "read_page",
-         "description": "Reads the content of one or more tabs: visible text (default), links, or current HTML. For summarizing, comparing or extracting.",
-         "inputSchema": obj(["tabs": refs, "format": e(["text", "links", "html"], "text by default"),
-                             "max_chars": n("Truncate each page to this many characters (8000 by default)")])],
+         "description": "Reads the content of one or more tabs. markdown (default): the main content (article, main; menus, cookie banners and footers removed) with headings, lists, Markdown tables, compact links, image alt text and code; full: true for the whole page, selector for one zone. text: raw visible text, links: the links, html: current HTML. Use it to summarize, compare or extract; use snapshot instead to act on the page. A truncated answer gives length: call again with offset to read the rest. A PDF tab returns the text Safari extracts.",
+         "inputSchema": obj(["tabs": refs, "format": e(["markdown", "text", "links", "html"], "markdown by default"),
+                             "selector": s("markdown: only this zone (CSS selector)"), "full": b("markdown: the whole page instead of the main content"),
+                             "links": b("markdown: keep link targets (true by default)"),
+                             "max_chars": n("Truncate each page to this many characters (8000 by default)"), "offset": n("Start at this character (to read past a truncation)")])],
         ["name": "run_js",
          "description": "Runs synchronous JavaScript in one or more tabs and returns the result (objects converted to JSON). A single expression is enough; otherwise a function body with return. For clicking, filling in, extracting.",
          "inputSchema": obj(["script": s("JavaScript code"), "tabs": refs], ["script"])],
@@ -61,6 +65,25 @@ enum Tools {
          "inputSchema": obj(["window_id": n("Window (active tab of the front window if omitted)"), "index": n("Tab index in the window"),
                              "full_page": b("Whole page instead of the visible part (capped at 20000 px tall)"),
                              "path": s("Absolute path of the image file (default: ~/Pictures/Safari captures/<title> <date>.png)")])],
+        ["name": "page_info",
+         "description": "First call on an unknown page: what it is and how to drive it, in one cheap call. URL, title, readyState, frameworks and editors (React, Vue, Angular, Svelte, draw.io/mxGraph, Monaco, CodeMirror, ProseMirror, Google Docs canvas), page type (article, application, form, pdf, login, error, captcha, canvas app), iframes and shadow roots, scroll height and position (infinite scroll likely or not), open dialogs, focused element, selected text, alerts intercepted so far. Then use snapshot to see the controls, or read_page to read.",
+         "inputSchema": obj(tabProps)],
+        ["name": "snapshot",
+         "description": "Compact accessibility tree of the page, one line per element: ref, role, accessible name, states [checked, expanded, collapsed, disabled, selected, focused…] and = value for fields. Default: interactive elements and headings in DOM order (open shadow DOM and same-origin iframes included; cross-origin iframes flagged). Refs (e12) are reused by click, type, select, check, hover, scroll, find and act until the page reloads. Use it before acting on a page you have not seen; use read_page to read text, find to locate one element.",
+         "inputSchema": obj(tabProps.merging([
+            "all": b("Every element with a role or text, not only interactive elements and headings"),
+            "viewport_only": b("Only elements currently on screen"),
+            "selector": s("CSS selector of a zone to limit the snapshot to"), "ref": s("Ref of a zone (e.g. a dialog) to limit the snapshot to"),
+            "urls": b("Add link targets"),
+            "max_chars": n("Size of a page of lines (8000 by default)"), "offset": n("Continue from this offset (next_offset of the previous call)")]) { a, _ in a })],
+        ["name": "find",
+         "description": "Locates elements by visible text (accents and case ignored, partial words accepted), role, CSS selector, field label, or proximity to a text (near: \"Password\" finds the field next to it). Returns ref, role, name, rect, and whether it is visible, off-screen, covered (by what) or hidden (and why). Use it when you know what you look for; snapshot to discover the page.",
+         "inputSchema": obj(tabProps.merging([
+            "text": s("Visible text, aria-label, title, placeholder or alt (case and accents ignored, partial words accepted)"),
+            "role": s("Role: button, link, textbox, checkbox, combobox, menuitem, tab, heading, clickable…"),
+            "selector": s("CSS selector"), "label": s("Label of a form field (label, placeholder, aria-label)"),
+            "near": s("Rank by distance to the element showing this text (e.g. the field next to \"Password\")"),
+            "within": s("CSS selector or ref of a zone to search in"), "limit": n("Maximum number (10 by default)")]) { a, _ in a })],
         ["name": "list_reading_list",
          "description": "Reads the Reading List (title, URL, date added, read), newest first. 20 items by default.",
          "inputSchema": obj(["text": s("Filter on title, URL or preview"), "unread_only": b("Only unread items"),
@@ -101,6 +124,9 @@ enum Tools {
         case "close": return try Handlers.fermer(a)
         case "read_page": return try Handlers.lirePage(a)
         case "run_js": return try Handlers.executerJS(a)
+        case "page_info": return try Handlers.pageInfo(a)
+        case "snapshot": return try Handlers.snapshot(a)
+        case "find": return try Handlers.trouver(a)
         case "capture_page": return try Capture.capturer(a)
         case "list_reading_list": return try Handlers.listeDeLecture(a)
         case "add_to_reading_list": return try Handlers.ajouterListeDeLecture(a)

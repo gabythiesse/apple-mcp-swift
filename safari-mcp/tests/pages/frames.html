@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>[mcp-test] frames</title></head>
+<body><h1>[mcp-test] frames and shadow DOM</h1>
+<button id="top">top button</button>
+<iframe id="same" title="same-origin frame" style="width:400px;height:120px" srcdoc="<h2>inside same-origin</h2><button onclick=&quot;this.textContent='clicked inside'&quot;>frame button</button><input placeholder='frame field'>"></iframe>
+<iframe id="cross" title="cross-origin frame" style="width:400px;height:80px"></iframe>
+<my-card></my-card>
+<script>
+// Autre origine : servie en http, la page charge child.html depuis l'autre nom de la machine (127.0.0.1 <-> localhost)
+var cross = document.getElementById('cross');
+cross.src = location.protocol === 'http:'
+  ? 'http://' + (location.hostname === 'localhost' ? '127.0.0.1' : 'localhost') + ':' + location.port + location.pathname.replace('frames.html', 'child.html')
+  : 'https://example.com/';
+customElements.define('my-card', class extends HTMLElement {
+  constructor() { super(); const r = this.attachShadow({ mode: 'open' });
+    r.innerHTML = '<h3>shadow title</h3><button id="sb">shadow button</button><input type="checkbox" aria-label="shadow check">';
+    r.getElementById('sb').addEventListener('click', e => e.target.textContent = 'shadow clicked'); }
+});
+</script></body></html>

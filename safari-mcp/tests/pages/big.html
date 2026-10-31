@@ -1,0 +1,13 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>[mcp-test] 10000 elements</title>
+<style>.row{display:flex;gap:4px}.c{cursor:pointer}</style></head>
+<body><h1>[mcp-test] 10000 elements</h1><main id="m"></main>
+<script>
+// 10 000 éléments : 1 000 lignes de 10 éléments (liens, boutons, champs, cases, texte, div cliquables)
+var m = document.getElementById('m'), html = [];
+for (var i = 0; i < 1000; i++) {
+  html.push('<div class="row"><span>row ' + i + '</span><a href="#r' + i + '">link ' + i + '</a><button>button ' + i + '</button>' +
+    '<input placeholder="field ' + i + '"><label><input type="checkbox"> check ' + i + '</label><div class="c">clickable ' + i + '</div>' +
+    '<em>e</em><b>b</b></div>');
+}
+m.innerHTML = html.join('');
+</script></body></html>

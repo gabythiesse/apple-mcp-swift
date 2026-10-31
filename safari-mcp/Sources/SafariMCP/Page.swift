@@ -6,11 +6,15 @@ struct PageNavigated: Error, CustomStringConvertible { var description: String {
 
 enum Page {
     /// Source de mcp.js, embarquée dans le binaire (Package.swift : resources .embedInCode)
-    static let lib = String(decoding: PackageResources.mcp_js, as: UTF8.self)
-    static let version: Int = {
-        guard let r = lib.range(of: #"var V = (\d+);"#, options: .regularExpression) else { return 0 }
-        return Int(lib[r].filter(\.isNumber)) ?? 0
-    }()
+    static let source = String(decoding: PackageResources.mcp_js, as: UTF8.self)
+    /// Version = empreinte du fichier : une page qui a une ancienne bibliothèque reçoit la nouvelle, sans numéro à tenir à jour
+    static let version: Int = source.utf8.reduce(5381) { ($0 &* 33 &+ Int($1)) & 0x7fffffff }
+    /// Ce qui part dans la page : le fichier sans ses lignes de commentaire ni son indentation (lisible dans le dépôt, léger à l'injection)
+    static let lib: String = source.split(separator: "\n", omittingEmptySubsequences: true)
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty && !$0.hasPrefix("//") }
+        .joined(separator: "\n")
+        .replacingOccurrences(of: "var V = 0;", with: "var V = \(version);")
     private static let absente = "\u{0}nolib"
 
     /// Littéral JavaScript d'une valeur JSON (chaîne, nombre, objet…)
