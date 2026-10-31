@@ -130,7 +130,7 @@ enum Handlers {
                 if !e.pret { onglets[k]["loaded"] = false }
             }
         }
-        return ["ok": true, "window_id": fenetre, "tabs": onglets]
+        return ["window_id": fenetre, "tabs": onglets]
     }
 
     static func naviguer(_ a: JSON) throws -> Any {
@@ -169,9 +169,8 @@ enum Handlers {
         for ((ref, k, _), (m, url)) in zip(items, etats) {
             var o = ref.json
             if m == "ok" {
-                o["ok"] = true
                 if k != "activate" { aAttendre.append(ref); if k != "reload" { avant[ref] = url } }
-            } else { o["ok"] = false; o["error"] = m }
+            } else { o["error"] = m }
             res.append(o)
         }
         if a.bool("wait") == true, !aAttendre.isEmpty {
@@ -183,6 +182,10 @@ enum Handlers {
                 res[k]["title"] = e.titre; res[k]["url"] = e.url
                 if !e.pret { res[k]["loaded"] = false }
             }
+        }
+        if res.count == 1 {
+            if let e = res[0]["error"] as? String { throw MCPError(e) }
+            return res[0].filter { $0.key != "window_id" && $0.key != "index" }
         }
         return ["results": res]
     }
@@ -257,11 +260,11 @@ enum Handlers {
     static func lirePage(_ a: JSON) throws -> Any {
         let cibles = try refs(a)
         let format = a.nonEmpty("format") ?? "text"
-        let maxc = max(100, a.int("max_chars") ?? 8000)
+        let maxc = max(100, a.int("max_chars") ?? 8000), offset = max(0, a.int("offset") ?? 0)
         let js: String
         switch format {
         // Texte découpé dans la page : seuls max_chars caractères traversent l'Apple Event (text of t envoyait tout)
-        case "text": js = AS.jsWrapper("var s=document.body?document.body.innerText:'';return [s.length,s.slice(0,\(maxc))]")
+        case "text": js = AS.jsWrapper("var s=document.body?document.body.innerText:'';return [s.length,s.slice(\(offset),\(offset + maxc))]")
         case "html": js = AS.jsWrapper("document.documentElement.outerHTML")
         case "links": js = AS.jsWrapper("[...document.links].slice(0,500).map(a=>[(a.innerText||a.title||'').trim().replace(/\\s+/g,' ').slice(0,120),a.href])")
         default: throw MCPError("unknown format: \(format) (text, links, html)")
@@ -274,7 +277,7 @@ enum Handlers {
             if format == "text" && !brut.hasPrefix("§") {
                 // JavaScript indisponible : texte de la page par Safari (plus lent, tout le texte)
                 let t = try AE.get(AE.prop("ctxt", of: AE.tab(ref)))?.string ?? ""
-                brut = "§" + jsonText([t.count, String(t.prefix(maxc))])
+                brut = "§" + jsonText([t.count, String(t.dropFirst(offset).prefix(maxc))])
             }
             guard brut.hasPrefix("§") else { o["error"] = "JavaScript unavailable: enable Develop > Allow JavaScript from Apple Events"; return o }
             brut.removeFirst()
@@ -293,11 +296,15 @@ enum Handlers {
                 let l = (try? JSONSerialization.jsonObject(with: Data(brut.utf8))) as? [Any] ?? []
                 let n = (l.first as? Int) ?? 0, txt = l.count > 1 ? l[1] as? String ?? "" : ""
                 o["text"] = txt
-                if n > txt.count { o["truncated"] = true; o["length"] = n }
+                if n > txt.count + offset { o["truncated"] = true }
+                if n > txt.count { o["length"] = n }
+                if offset > 0 { o["offset"] = offset }
             } else {
-                let (txt, coupe) = tronquer(brut, maxc)
+                let txt = String(brut.dropFirst(offset).prefix(maxc))
                 o["html"] = txt
-                if coupe { o["truncated"] = true; o["length"] = brut.count }
+                if brut.count > offset + maxc { o["truncated"] = true }
+                if brut.count > txt.count { o["length"] = brut.count }
+                if offset > 0 { o["offset"] = offset }
             }
             return o
         }.map { ref, r in
@@ -306,33 +313,75 @@ enum Handlers {
             case .failure(let e): var o = ref.json; o["error"] = e.description; return o
             }
         }
+        // Un seul onglet visé : objet plat, sans la référence que l'appelant connaît déjà
+        if cibles.count == 1 {
+            if let e = pages[0]["error"] as? String { throw MCPError(e) }
+            return pages[0].filter { $0.key != "window_id" && $0.key != "index" }
+        }
         return ["pages": pages]
     }
+
+    /// Dernier résultat tronqué de run_js : offset relit la suite sans relancer le script
+    nonisolated(unsafe) private static var dernierJS: (cle: String, texte: String)?
 
     static func executerJS(_ a: JSON) throws -> Any {
         let code = try a.req("script")
         let cibles = try refs(a)
-        let script = AS.jsWrapper(code)
-        let res: [JSON] = parOnglet(cibles) { try AE.js(script, in: $0, timeout: 20) }.map { ref, r in
-            var o = ref.json
-            switch r {
-            case .failure(let e): o["ok"] = false; o["error"] = e.description
-            case .success(let d):
-                guard var s = d, s.hasPrefix("§") else {
-                    o["ok"] = false
-                    o["error"] = "no result: JavaScript syntax error, page without a document, or the \"Allow JavaScript from Apple Events\" setting is off"
-                    return o
+        let timeout = max(0.1, (a.double("timeout") ?? 10000) / 1000)
+        let maxc = max(100, a.int("max_chars") ?? 20000), offset = max(0, a.int("offset") ?? 0)
+        let t = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        let instructions = ["throw ", "var ", "let ", "const ", "if ", "if(", "for ", "for(", "while", "try", "function ", "class ", "switch", "do ", "return"]
+        let simple = !t.contains(";") && !t.contains("\n") && !instructions.contains(where: t.hasPrefix)
+        // await accepté : fonction async, le résultat (promesse) est sondé par Page.poll
+        let fn = (t.contains("await") ? "async " : "") + "function(){\n" + (simple ? "return (\(t));" : t) + "\n}"
+        let res: [JSON] = parOnglet(cibles) { ref -> JSON in
+            let cle = "\(ref.fenetre)/\(ref.index)|\(code)"
+            var texte: String
+            var o: JSON = [:]
+            if offset > 0, let d = dernierJS, d.cle == cle { texte = d.texte }
+            else {
+                do { o = try Page.poll(Page.raw("__mcp.js(\(fn))", in: ref, timeout: min(timeout, 5)), in: ref, timeout: timeout) }
+                catch let e as MCPError where e.description.hasPrefix("no result") { throw MCPError(syntaxe(t, simple: simple, ref)) }
+                catch let e as MCPError {
+                    // Ligne d'erreur ramenée au code de l'appelant (l'en-tête du script occupe la ligne 1)
+                    if let r = e.description.range(of: #" \(line (\d+)\)$"#, options: .regularExpression),
+                       let n = Int(e.description[r].filter(\.isNumber)), n > 1 { throw MCPError("JavaScript: " + e.description[..<r.lowerBound] + " (line \(n - 1))") }
+                    throw MCPError("JavaScript: " + e.description)
                 }
-                s.removeFirst()
-                if s.hasPrefix("ERR") { o["ok"] = false; o["error"] = "JavaScript: " + s.dropFirst(3); return o }
-                o["ok"] = true
-                let (txt, coupe) = tronquer(s, 20000)
-                if !coupe, let f = txt.first, f == "{" || f == "[", let v = try? JSONSerialization.jsonObject(with: Data(txt.utf8)) { o["result"] = v }
-                else { o["result"] = txt; if coupe { o["truncated"] = true } }
+                guard let v = o.removeValue(forKey: "value") else { return o }
+                if let s = v as? String { texte = s } else {
+                    let j = jsonText(v)
+                    if j.count <= maxc && offset == 0 { o["result"] = v; return o }
+                    texte = j
+                }
             }
+            if texte.count <= maxc && offset == 0 { o["result"] = texte; return o }
+            dernierJS = (cle, texte)
+            let debut = texte.index(texte.startIndex, offsetBy: min(offset, texte.count))
+            o["result"] = String(texte[debut...].prefix(maxc))
+            o["length"] = texte.count
+            if offset > 0 { o["offset"] = offset }
             return o
+        }.map { ref, r in
+            switch r {
+            case .success(let o): return o
+            case .failure(let e): return ["error": e.description]
+            }
         }
-        return ["results": res]
+        if cibles.count == 1 {
+            if let e = res[0]["error"] as? String { throw MCPError(e) }
+            return res[0]
+        }
+        return ["results": zip(cibles, res).map { ref, o in o.merging(ref.json) { a, _ in a } }]
+    }
+
+    /// Message d'une erreur de syntaxe : la page compile le code à part pour en donner la raison (sauf CSP sans unsafe-eval)
+    private static func syntaxe(_ t: String, simple: Bool, _ ref: TabRef) -> String {
+        let corps = Page.lit(simple ? "return (\(t));" : t)
+        let js = "(function(){try{var F=Object.getPrototypeOf(async function(){}).constructor;new F(\(corps));return 'ok'}catch(e){return e.name+': '+e.message+(e.line?' (line '+e.line+')':'')}})()"
+        let m = (try? AE.js(js, in: ref, timeout: 2)) ?? nil
+        if let m, m != "ok", !m.hasPrefix("EvalError") { return "JavaScript syntax error: " + m.replacingOccurrences(of: "SyntaxError: ", with: "") }
+        return "JavaScript syntax error, or the page has no document"
     }
 
     // MARK: - Liste de lecture et favoris (Bookmarks.plist, lecture seule)

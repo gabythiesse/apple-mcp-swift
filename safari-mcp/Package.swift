@@ -12,6 +12,7 @@ let package = Package(
         .executableTarget(
             name: "SafariMCP",
             path: "Sources/SafariMCP",
+            resources: [.embedInCode("Resources/mcp.js")],   // bibliothèque injectée dans les pages, embarquée dans le binaire
             linkerSettings: [.unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", infoPlist])]
         )
     ]

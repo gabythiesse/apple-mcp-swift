@@ -117,42 +117,57 @@ try:
     check(r["tabs"][0]["index"] == 4 and r["tabs"][0].get("title") == "[mcp-test] page 2", f"page 2 in tab 4: {r}")
 
     print("== Navigate")
-    n = call("navigate", {"actions": [{"window_id": W, "index": 1, "url": P2}], "wait": True})["results"][0]
-    check(n["ok"] and n.get("title") == "[mcp-test] page 2", f"go to a URL: {n}")
-    n = call("navigate", {"actions": [{"window_id": W, "index": 1, "action": "back"}], "wait": True})["results"][0]
+    n = call("navigate", {"actions": [{"window_id": W, "index": 1, "url": P2}], "wait": True})
+    check("error" not in n and n.get("title") == "[mcp-test] page 2", f"go to a URL: {n}")
+    n = call("navigate", {"actions": [{"window_id": W, "index": 1, "action": "back"}], "wait": True})
     check(n.get("title") == "[mcp-test] page 1", f"back: {n}")
-    n = call("navigate", {"actions": [{"window_id": W, "index": 1, "action": "forward"}], "wait": True})["results"][0]
+    n = call("navigate", {"actions": [{"window_id": W, "index": 1, "action": "forward"}], "wait": True})
     check(n.get("title") == "[mcp-test] page 2", f"forward: {n}")
     n = call("navigate", {"actions": [{"window_id": W, "index": 1, "url": P1}, {"window_id": W, "index": 2, "action": "reload"}], "wait": True})["results"]
-    check(all(x["ok"] for x in n) and [x.get("title") for x in n] == ["[mcp-test] page 1", "[mcp-test] page 2"], f"batch url + reload: {n}")
-    n = call("navigate", {"actions": [{"window_id": W, "index": 2, "action": "activate"}]})["results"][0]
-    check(n["ok"] and call("list_tabs", {"window_id": W})["tabs"][1].get("active") is True, "activate tab 2")
+    check(all("error" not in x for x in n) and [x.get("title") for x in n] == ["[mcp-test] page 1", "[mcp-test] page 2"], f"batch url + reload: {n}")
+    n = call("navigate", {"actions": [{"window_id": W, "index": 2, "action": "activate"}]})
+    check("error" not in n and call("list_tabs", {"window_id": W})["tabs"][1].get("active") is True, "activate tab 2")
     n = call("navigate", {"actions": [{"window_id": W, "index": 1, "action": "voler"}]}, expect_error=True)
     check("unknown action" in n, "unknown action refused")
 
     print("== Read page")
     p = call("read_page", {"tabs": [{"window_id": W, "index": 1}, {"window_id": W, "index": 2}]})["pages"]
     check("marqueur-mcp-test-1" in p[0].get("text", "") and "marqueur-mcp-test-2" in p[1].get("text", ""), "text of 2 tabs in one call")
-    l = call("read_page", {"tabs": [{"window_id": W, "index": 1}], "format": "links"})["pages"][0]
+    l = call("read_page", {"tabs": [{"window_id": W, "index": 1}], "format": "links"})
     check(l.get("links") == [{"text": "link to 2", "url": P2}], f"links: {l.get('links')}")
-    h = call("read_page", {"tabs": [{"window_id": W, "index": 1}], "format": "html"})["pages"][0]
+    h = call("read_page", {"tabs": [{"window_id": W, "index": 1}], "format": "html"})
     check("<h1>[mcp-test] page 1</h1>" in h.get("html", ""), "current html")
-    t = call("read_page", {"tabs": [{"window_id": W, "index": 1}], "format": "html", "max_chars": 100})["pages"][0]
-    check(t.get("truncated") is True and len(t["html"]) == 100, "truncation")
-    e = call("read_page", {"tabs": [{"window_id": W, "index": 99}]})["pages"][0]
-    check("error" in e, f"missing tab → per-item error: {e.get('error', '')[:80]}")
+    t = call("read_page", {"tabs": [{"window_id": W, "index": 1}], "format": "html", "max_chars": 100})
+    check(t.get("truncated") is True and len(t["html"]) == 100 and t.get("length", 0) > 100, "truncation with length")
+    t2 = call("read_page", {"tabs": [{"window_id": W, "index": 1}], "format": "html", "max_chars": 100, "offset": 100})
+    check(t2.get("offset") == 100 and t2["html"] and t2["html"] != t["html"], "offset reads the rest")
+    e = call("read_page", {"tabs": [{"window_id": W, "index": 99}]}, expect_error=True)
+    check("not found" in e, f"missing tab → error: {e[:80]}")
+    e = call("read_page", {"tabs": [{"window_id": W, "index": 1}, {"window_id": W, "index": 99}]})["pages"]
+    check("error" in e[1] and "text" in e[0], "batch: per-item error")
 
     print("== JavaScript")
     j = call("run_js", {"script": "document.title", "tabs": [{"window_id": W, "index": 1}, {"window_id": W, "index": 2}]})["results"]
     check([x.get("result") for x in j] == ["[mcp-test] page 1", "[mcp-test] page 2"], f"expression on 2 tabs: {j}")
-    j = call("run_js", {"script": "return {n: document.links.length, h: location.protocol}", "tabs": [{"window_id": W, "index": 1}]})["results"][0]
+    j = call("run_js", {"script": "return {n: document.links.length, h: location.protocol}", "tabs": [{"window_id": W, "index": 1}]})
     check(j.get("result") == {"n": 1, "h": "file:"}, f"object → JSON: {j}")
-    j = call("run_js", {"script": "document.body.innerHTML = '<p>[mcp-test] injected</p>'; return document.body.innerText", "tabs": [{"window_id": W, "index": 3}]})["results"][0]
+    j = call("run_js", {"script": "document.body.innerHTML = '<p>[mcp-test] injected</p>'; return document.body.innerText", "tabs": [{"window_id": W, "index": 3}]})
     check(j.get("result") == "[mcp-test] injected", f"function body on about:blank: {j}")
-    j = call("run_js", {"script": "throw new Error('boum')", "tabs": [{"window_id": W, "index": 1}]})["results"][0]
-    check(j["ok"] is False and "boum" in j.get("error", ""), f"JS exception: {j}")
-    j = call("run_js", {"script": "return (", "tabs": [{"window_id": W, "index": 1}]})["results"][0]
-    check(j["ok"] is False and "syntax" in j.get("error", ""), "syntax error reported")
+    j = call("run_js", {"script": "throw new Error('boum')", "tabs": [{"window_id": W, "index": 1}]}, expect_error=True)
+    check("boum" in j and "line 1" in j, f"JS exception with line: {j}")
+    j = call("run_js", {"script": "return (", "tabs": [{"window_id": W, "index": 1}]}, expect_error=True)
+    check("syntax" in j, "syntax error reported")
+    j = call("run_js", {"script": "await new Promise(r => setTimeout(() => r(42), 100))", "tabs": [{"window_id": W, "index": 1}]})
+    check(j.get("result") == 42, f"await: {j}")
+    j = call("run_js", {"script": "await new Promise(r => setTimeout(r, 5000))", "timeout": 300, "tabs": [{"window_id": W, "index": 1}]}, expect_error=True)
+    check("timed out" in j, "async timeout")
+    j = call("run_js", {"script": "alert('[mcp-test]'); return confirm('ok?')", "tabs": [{"window_id": W, "index": 1}]})
+    check(j.get("result") is True and [d["type"] for d in j.get("dialogs", [])] == ["alert", "confirm"], f"dialogs intercepted: {j}")
+    j = call("run_js", {"script": "document.querySelector('a')", "tabs": [{"window_id": W, "index": 1}]})
+    check(str(j.get("result", "")).startswith("<a>"), f"DOM node described: {j}")
+    j = call("run_js", {"script": "'x'.repeat(30000)", "max_chars": 1000, "tabs": [{"window_id": W, "index": 1}]})
+    j2 = call("run_js", {"script": "'x'.repeat(30000)", "max_chars": 1000, "offset": 29500, "tabs": [{"window_id": W, "index": 1}]})
+    check(j.get("length") == 30000 and len(j2["result"]) == 500, "run_js truncation + offset")
 
     print("== Close tabs")
     f = call("close", {"tabs": [{"window_id": W, "index": 3, "expected_url": "https://pas-celle-ci"}]})
