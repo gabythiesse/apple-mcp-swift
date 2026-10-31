@@ -196,7 +196,7 @@ enum Handlers {
             } catch {
                 let m = "\(error)"
                 res.append(["id": id, "ok": false, "error": m.contains("-1719") || m.contains("-25211") || m.contains("assistance")
-                    ? "macOS refuses UI scripting: allow MailMCP in System Settings > Privacy & Security > Accessibility" : m])
+                    ? "macOS refuses UI scripting: System Settings > Privacy & Security > Accessibility > turn on AppleMCP" : m])
             }
         }
         return ["results": res]

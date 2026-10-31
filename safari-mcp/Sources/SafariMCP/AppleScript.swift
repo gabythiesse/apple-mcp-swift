@@ -34,10 +34,10 @@ enum AS {
         let n = err[NSAppleScript.errorNumber] as? Int ?? 0
         let m = err[NSAppleScript.errorMessage] as? String ?? "AppleScript error"
         if n == -25211 || m.localizedCaseInsensitiveContains("assist") || m.contains("accès d’aide") {
-            return "Accessibility denied: allow Claude in System Settings > Privacy & Security > Accessibility"
+            return "Accessibility denied: System Settings > Privacy & Security > Accessibility > turn on AppleMCP"
         }
         switch n {
-        case -1743: return "Automation denied: allow Claude to control Safari in System Settings > Privacy & Security > Automation"
+        case -1743: return "Automation denied: System Settings > Privacy & Security > Automation > AppleMCP > turn on Safari"
         case -1719, -1728: return "window or tab not found (\(m))"
         default: return m + " (\(n))"
         }

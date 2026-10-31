@@ -97,7 +97,7 @@ enum AS {
                 let num = err[NSAppleScript.errorNumber] as? Int ?? 0
                 let msg = err[NSAppleScript.errorMessage] as? String ?? "AppleScript error"
                 if num == -1743 {
-                    result = .failure(MCPError("macOS refuses control of Notes: allow it in System Settings > Privacy & Security > Automation (-1743)"))
+                    result = .failure(MCPError("Automation denied: System Settings > Privacy & Security > Automation > AppleMCP > turn on Notes (-1743)"))
                 } else {
                     result = .failure(MCPError("\(msg) (\(num))"))
                 }

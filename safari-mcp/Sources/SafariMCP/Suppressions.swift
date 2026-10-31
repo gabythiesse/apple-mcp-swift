@@ -62,7 +62,7 @@ final class FenetreTravail {
     private(set) var ax: AXUIElement
     var uuid: String { AX.ident(ax).components(separatedBy: "UUID=").last.map { String($0.prefix(36)) } ?? "" }
 
-    static let accessibilite = "macOS refuses interface control: allow SafariMCP in System Settings > Privacy & Security > Accessibility, then try again"
+    static let accessibilite = "macOS refuses interface control: System Settings > Privacy & Security > Accessibility > turn on AppleMCP, then try again"
 
     init() throws {
         guard AXIsProcessTrusted() else { throw MCPError(FenetreTravail.accessibilite) }
@@ -375,5 +375,5 @@ enum Suppressions {
 func import_ApplicationServices_trusted() {
     let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
     let ok = AXIsProcessTrustedWithOptions(opts)
-    print(ok ? "accessibility: granted" : "accessibility: to enable in System Settings > Privacy & Security > Accessibility (SafariMCP)")
+    print(ok ? "accessibility: granted" : "accessibility: to enable in System Settings > Privacy & Security > Accessibility (AppleMCP)")
 }

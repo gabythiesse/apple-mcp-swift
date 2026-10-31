@@ -33,7 +33,7 @@ enum AS {
         if Thread.isMainThread { work() } else { DispatchQueue.main.sync(execute: work) }
         if let m = errMsg {
             if errNum == -1743 || errNum == -1744 {
-                throw MCPError("macOS does not allow Claude to control Mail: allow it in System Settings > Privacy & Security > Automation.")
+                throw MCPError("Automation denied: System Settings > Privacy & Security > Automation > AppleMCP > turn on Mail and System Events (check all: ./installer.command --check).")
             }
             throw MCPError("Mail : \(m) (\(errNum))")
         }

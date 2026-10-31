@@ -56,7 +56,7 @@ enum AS {
         }
         if let res { return res }
         if num == -1743 {
-            throw MCPError("Automation denied: System Settings > Privacy & Security > Automation, allow ContactsMCP to control Contacts.")
+            throw MCPError("Automation denied: System Settings > Privacy & Security > Automation > AppleMCP > turn on Contacts (check all: ./installer.command --check).")
         }
         throw MCPError("AppleScript: \(msg)")
     }
