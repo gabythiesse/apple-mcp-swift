@@ -120,11 +120,15 @@ c = os.path.expanduser("~/.codex/config.toml")
 if os.path.exists(c):
     t = open(c).read(); shutil.copy(c, c + f".bak-{int(time.time())}")
     for k in names:
-        block = f'[mcp_servers.{k}]\ncommand = "{launcher}"\nargs = ["{k}"]\n'
-        t, n = re.subn(rf'\[mcp_servers\.{k}\]\ncommand = "[^"]+"\n(args = \[[^\]]*\]\n)?', block, t)
-        if n == 0: t = t.rstrip("\n") + "\n\n" + block
+        # an existing [mcp_servers.<k>] table, whatever its key order: never overwritten, never duplicated (invalid TOML)
+        m = re.search(rf'^\[mcp_servers\.{re.escape(k)}\]\n((?:(?!\[).*\n?)*)', t, re.M)
+        if m:
+            if f'command = "{launcher}"' not in m.group(1):
+                print(f"   ! Codex: entry \"{k}\" points elsewhere, left unchanged")
+            continue
+        t = t.rstrip("\n") + f'\n\n[mcp_servers.{k}]\ncommand = "{launcher}"\nargs = ["{k}"]\n'
     open(c, "w").write(t)
-    print("   ✓ Codex: six servers registered (restart the ChatGPT app to enable them)")
+    print("   ✓ Codex: servers registered (restart the ChatGPT app to enable them)")
 PY
 
 echo "5/5 — permissions: click \"Allow\"/\"OK\" on every \"AppleMCP\" prompt, turn on the switches System Settings shows"
