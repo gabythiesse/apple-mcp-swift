@@ -13,8 +13,8 @@ private func arr(_ items: JSON, _ d: String) -> JSON { ["type": "array", "items"
 private let dateHelp = "YYYY-MM-DD (all day) or YYYY-MM-DDTHH:MM (local time)"
 
 private let alarme = obj([
-    "date": s("Alert at a date: \(dateHelp)"),
-    "minutes_before": n("Alert N minutes before the due date"),
+    "date": s("Alert at this date: \(dateHelp). The app shows it as the reminder's date (see alarms)"),
+    "minutes_before": n("Alert N minutes before a due date that has a time; the app shows that earlier time as the reminder's date (see alarms). Not for an all-day due date"),
     "location": s("Location alert: place name (requires latitude and longitude)"),
     "latitude": n("Latitude of the place"),
     "longitude": n("Longitude of the place"),
@@ -30,17 +30,26 @@ private let recurrence = obj([
     "occurrences": n("Number of occurrences"),
 ], ["frequency"])
 
+/// Rappel anticipé : réglage propre à l'app (REMDueDateDeltaAlert), pas une alarme
+private let rappelAnticipe: JSON = [
+    "description": "Early reminder, the app's own setting (Early Reminder): one more notification this long before the due date, while the app keeps showing the due date. This is the way to be warned before a deadline, e.g. {\"amount\": 1, \"unit\": \"weeks\"}. Requires due; minutes and hours need a due date with a time. null to remove",
+    "anyOf": [obj(["amount": n("How long before the due date: whole number, 1 or more"),
+                   "unit": e(EarlyReminder.units, "Unit of amount")], ["amount", "unit"]),
+              ["type": "null"]],
+]
+
 /// Champs communs à la création et à la modification
 private let champs: JSON = [
     "title": s("Title"),
     "notes": s("Notes (\"\" to clear)"),
-    "due": s("Due date: the real deadline, \(dateHelp). It puts the reminder in Today and Scheduled, and marks it overdue once passed. With a time, an alert is set at the due time, as in the app; with a day only, the app notifies that day at the time set in its settings (9:00 by default). For an earlier heads-up, keep due on the deadline and add alarms. \"\" to clear"),
-    "start": s("Start date: \(dateHelp). \"\" to clear"),
+    "due": s("Due date: the real deadline, \(dateHelp). The app shows it as the reminder's date (Today, Scheduled, overdue once passed), unless dated alarms replace it (see alarms). With a time, an alert is set at that time, as in the app; with a day only, the app notifies that day at the time set in its settings (9:00 by default). To be warned earlier, keep due on the deadline and set early_reminder. \"\" to clear (the early reminder goes with it)"),
+    "early_reminder": rappelAnticipe,
+    "start": s("Start date: \(dateHelp). Not shown by the app and rarely needed: left empty unless given, as in the app. \"\" to clear"),
     "priority": e(["high", "medium", "low", "none"], "Priority"),
     "flagged": b("Flag"),
     "url": s("URL shown in the reminder (\"\" to remove)"),
     "section_id": s("Section of the list (see the list_sections tool; \"\" to take it out of its section)"),
-    "alarms": arr(alarme, "Extra alerts, on top of the one at the due date: e.g. a heads-up a few days before, to get started in time. Never move due to the heads-up date. Replaces all existing alerts; [] to remove them all"),
+    "alarms": arr(alarme, "Alarms, only for a deliberate need (a location alert, an alert at an exact time). The app has no separate alarm field: it shows the earliest dated alarm as the reminder's date, in place of the due date, earlier or later (an alarm 3 days before a deadline makes the reminder look due 3 days early). Never use alarms as a heads-up before a deadline: use early_reminder. Replaces all existing alarms, including the one set at a due time; [] to remove them all"),
     "recurrence": ["description": "Recurrence (null to remove it). Requires a due date.", "anyOf": [recurrence, ["type": "null"]]],
 ]
 
@@ -107,7 +116,7 @@ enum Tools {
          "description": "Deletes a section by ID. Its reminders stay in the list, outside any section.",
          "inputSchema": obj(["id": s("Section ID")], ["id"])],
         ["name": "list_reminders",
-         "description": "Reads reminders with filters: built-in views (today includes overdue, overdue, week, scheduled, flagged, recently_completed), lists, text, tag, dates, status, subtasks of a parent. Returns IDs, due dates, tags, flag, subtasks, section, etc. 100 results by default, sorted by due date.",
+         "description": "Reads reminders with filters: built-in views (today includes overdue, overdue, week, scheduled, flagged, recently_completed), lists, text, tag, dates, status, subtasks of a parent. Returns IDs, due dates, early_reminder (with the date it notifies), tags, flag, subtasks, section, etc. displayed_date appears when the app shows another date than due, because of a dated alarm (views and date filters use due). 100 results by default, sorted by due date.",
          "inputSchema": obj([
             "view": e(["today", "overdue", "week", "scheduled", "flagged", "recently_completed"], "Built-in view"),
             "list_ids": arr(s("List ID"), "Limit to these lists"),
@@ -122,10 +131,10 @@ enum Tools {
             "limit": n("Maximum number of results (default 100)"),
          ])],
         ["name": "create_reminders",
-         "description": "Creates one or more reminders in a single call (e.g. all the action items from meeting notes), with subtasks, tags, flag, alerts, recurrence, URL, section. Returns success or failure per item, with IDs.",
+         "description": "Creates one or more reminders in a single call (e.g. all the action items from meeting notes), with subtasks, tags, flag, early reminder, alarms, recurrence, URL, section. A deadline with a heads-up: due = the deadline, early_reminder = how long before (not alarms). Returns success or failure per item, with IDs, and a warning when the app would show another date than due.",
          "inputSchema": obj(["reminders": arr(obj(champsCreation, ["title"]), "Reminders to create")], ["reminders"])],
         ["name": "update_reminders",
-         "description": "Updates one or more reminders by ID: fields, tags, flag, move to another list (subtasks included), section, attach to a parent. Only the fields provided change. To complete, use complete_reminders.",
+         "description": "Updates one or more reminders by ID: fields (early reminder included), tags, flag, move to another list (subtasks included), section, attach to a parent. Only the fields provided change. To complete, use complete_reminders. Warns when the app would show another date than due.",
          "inputSchema": obj(["updates": arr(obj(champsModification, ["id"]), "One entry per reminder")], ["updates"])],
         ["name": "complete_reminders",
          "description": "Marks reminders as completed (or reopens them with completed: false). Completing a recurring reminder creates the next occurrence.",

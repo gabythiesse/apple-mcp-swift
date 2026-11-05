@@ -1,5 +1,5 @@
 // Voie privée : ReminderKit, le framework qu'utilise l'app Rappels elle-même.
-// Couvre ce qu'EventKit n'expose pas : drapeau, tags, sous-tâches, sections, groupes, URL, images.
+// Couvre ce qu'EventKit n'expose pas : drapeau, tags, sous-tâches, sections, groupes, URL, images, rappel anticipé, date affichée.
 // Aucun en-tête public : appels par sélecteur via le runtime ObjC. Peut casser à une mise à jour de macOS.
 import Foundation
 import ObjectiveC
@@ -19,6 +19,9 @@ private typealias FSave = @convention(c) (AnyObject, Selector, AutoreleasingUnsa
 private typealias FHashtag = @convention(c) (AnyObject, Selector, Int, AnyObject?) -> AnyObject?
 private typealias FMembership = @convention(c) (AnyObject, Selector, AnyObject?, AnyObject?, Bool, AnyObject?) -> AnyObject?
 private typealias FImage = @convention(c) (AnyObject, Selector, AnyObject?, AnyObject?, UInt, UInt) -> AnyObject?
+private typealias F2E = @convention(c) (AnyObject, Selector, AnyObject?, AnyObject?, AutoreleasingUnsafeMutablePointer<NSError?>?) -> AnyObject?
+private typealias FInt = @convention(c) (AnyObject, Selector) -> Int
+private typealias FDelta = @convention(c) (AnyObject, Selector, Int, Int) -> AnyObject?
 
 /// Les modèles ReminderKit transfèrent leurs propriétés à un objet « storage » (forwardingTargetForSelector)
 private func receiver(_ o: AnyObject, _ sel: Selector) -> AnyObject? {
@@ -48,6 +51,7 @@ private func callE(_ o: AnyObject, _ s: String, _ a: AnyObject?) throws -> AnyOb
     let (f, sel, r) = try imp(o, s, F1E.self); var e: NSError?; let x = f(r, sel, a, &e); if let e { throw e }; return x
 }
 private func bool(_ o: AnyObject, _ s: String) throws -> Bool { let (f, sel, r) = try imp(o, s, FBool.self); return f(r, sel) }
+private func int(_ o: AnyObject, _ s: String) throws -> Int { let (f, sel, r) = try imp(o, s, FInt.self); return f(r, sel) }
 private func must(_ o: AnyObject?, _ what: String) throws -> AnyObject {
     guard let o else { throw MCPError("ReminderKit: \(what) not found") }
     return o
@@ -80,6 +84,22 @@ struct RKInfo {
     var listID: String?
     var url: String?
     var images = 0
+    var early: EarlyReminder?
+    var displayed: DateComponents?   // date que l'app affiche pour le rappel (REMDisplayDate)
+}
+
+/// Rappel anticipé de l'app (« Early Reminder », macOS 14+) : un REMDueDateDeltaAlert, décalage avant l'échéance.
+/// Ce n'est pas une alarme : EventKit ne le voit pas, et l'app continue d'afficher l'échéance (sonde 12).
+struct EarlyReminder {
+    /// Index = unité de REMDueDateDeltaInterval (0 minute, 1 heure, 2 jour, 3 semaine, 4 mois)
+    static let units = ["minutes", "hours", "days", "weeks", "months"]
+    var amount: Int
+    var unit: String
+}
+
+enum EarlyChange {
+    case set(EarlyReminder)
+    case remove
 }
 
 struct Extras {
@@ -89,9 +109,10 @@ struct Extras {
     var url: String?         // "" = retirer
     var parentID: String?    // "" = détacher du parent
     var sectionID: String?   // "" = sortir de la section
+    var early: EarlyChange?
 
     var isEmpty: Bool {
-        flagged == nil && addTags.isEmpty && removeTags.isEmpty && url == nil && parentID == nil && sectionID == nil
+        flagged == nil && addTags.isEmpty && removeTags.isEmpty && url == nil && parentID == nil && sectionID == nil && early == nil
     }
 }
 
@@ -130,6 +151,16 @@ enum RK {
         return r
     }
 
+    /// Les rappels anticipés ne sont chargés qu'avec cette option de lecture
+    private static var earlyFetchOptions: AnyObject? { opt(NSClassFromString("REMReminderFetchOptions") as AnyObject?, "fetchOptionsIncludingDueDateDeltaAlerts") }
+
+    private static func reminderWithEarly(_ st: AnyObject, _ id: String) throws -> AnyObject {
+        let (f, sel, r) = try imp(st, "fetchReminderWithObjectID:fetchOptions:error:", F2E.self)
+        var e: NSError?
+        guard let o = earlyFetchOptions, let x = f(r, sel, try oid("REMReminder", id), o, &e) else { throw MCPError("reminder not found: \(id)") }
+        return x
+    }
+
     private static func list(_ st: AnyObject, _ id: String) throws -> AnyObject {
         guard let l = try? callE(st, "fetchListWithObjectID:error:", try oid("REMList", id)) else { throw MCPError("list not found: \(id)") }
         return l
@@ -153,6 +184,11 @@ enum RK {
             if name.contains("URLAttachment") { i.url = (opt(a, "url") as? NSURL)?.absoluteString }
             else if name.contains("ImageAttachment") { i.images += 1 }
         }
+        if let a = opt(opt(r, "dueDateDeltaAlertContext"), "fetchedCurrentDueDateDeltaAlert"), let d = opt(a, "dueDateDelta"),
+           let u = try? int(d, "unit"), let n = try? int(d, "count"), EarlyReminder.units.indices.contains(u), n < 0 {
+            i.early = EarlyReminder(amount: -n, unit: EarlyReminder.units[u])
+        }
+        i.displayed = opt(opt(r, "displayDate"), "dateComponentsRepresentation") as? DateComponents
         return i
     }
 
@@ -164,8 +200,14 @@ enum RK {
         while i < ids.count {
             let chunk = Array(ids[i..<min(i + 200, ids.count)])
             i += 200
-            let oids = chunk.compactMap { try? oid("REMReminder", $0) }
-            guard let res = try? callE(st, "fetchRemindersWithObjectIDs:error:", oids as NSArray) else { continue }
+            let oids = chunk.compactMap { try? oid("REMReminder", $0) } as NSArray
+            var res: AnyObject?
+            if let o = earlyFetchOptions, case let (f, sel, rcv)? = try? imp(st, "fetchRemindersWithObjectIDs:fetchOptions:error:", F2E.self) {
+                var e: NSError?
+                res = f(rcv, sel, oids, o, &e)
+            }
+            if res == nil { res = try? callE(st, "fetchRemindersWithObjectIDs:error:", oids) }
+            guard let res else { continue }
             for r in objects(res) { if let id = idOf(r) { out[id] = info(r) } }
         }
         return out
@@ -238,8 +280,20 @@ enum RK {
         guard !x.isEmpty else { return }
         let st = try store()
         let sr = try saveRequest(st)
-        let r = try reminder(st, id)
+        // Les rappels anticipés existants doivent être chargés pour pouvoir être remplacés
+        let r = x.early != nil ? try reminderWithEarly(st, id) : try reminder(st, id)
         let ci = try must(try call(sr, "updateReminder:", r), "reminder change")
+
+        if let e = x.early {
+            let ctx = try must(try call(ci, "dueDateDeltaAlertContext"), "dueDateDeltaAlertContext")
+            try callV(ctx, "removeAllFetchedDueDateDeltaAlerts")
+            if case .set(let er) = e, let u = EarlyReminder.units.firstIndex(of: er.unit) {
+                let o = try alloc("REMDueDateDeltaInterval")
+                let (mk, sel, rcv) = try imp(o, "initWithUnit:count:", FDelta.self)
+                let delta = try must(mk(rcv, sel, u, -er.amount), "REMDueDateDeltaInterval")
+                _ = try must(try call(ctx, "addDueDateDeltaAlertWithDueDateDelta:", delta), "early reminder")
+            }
+        }
 
         if let f = x.flagged {
             let fc = try must(try call(ci, "flaggedContext"), "flaggedContext")

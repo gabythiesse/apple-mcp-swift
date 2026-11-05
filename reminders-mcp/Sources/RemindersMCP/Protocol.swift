@@ -39,8 +39,9 @@ enum Server {
     static let name = "reminders"
     static let version = "1.0.0"
     static let instructions = """
-    Controls the Mac Reminders app (lists, groups, sections, reminders, subtasks, tags, flag, alarms, recurrence, URL, images). \
+    Controls the Mac Reminders app (lists, groups, sections, reminders, subtasks, tags, flag, early reminders, alarms, recurrence, URL, images). \
     Every read and create returns stable IDs to reuse. Dates are in local time: YYYY-MM-DD (all day) or YYYY-MM-DDTHH:MM. \
+    The app shows a reminder's earliest dated alarm as its date: to be warned before a due date, use early_reminder, not alarms. \
     Deletions are by ID only and are permanent.
     """
 

@@ -224,10 +224,25 @@ enum Handlers {
             if let u = i.url { d["url"] = u }
             if let p = i.parentID { d["parent_id"] = p }
             if i.images > 0 { d["images"] = i.images }
+            if let e = i.early {
+                var o: JSON = ["amount": e.amount, "unit": e.unit]
+                if let dc = r.dueDateComponents, let at = earlyDate(e, due: dc) { o["date"] = at }
+                d["early_reminder"] = o
+            }
+            // L'app affiche la première alarme datée à la place de l'échéance : le dire quand les deux diffèrent
+            if let shown = i.displayed.map(Dates.text), shown != d["due"] as? String { d["displayed_date"] = shown }
         }
         if let s = section { d["section_id"] = s.id; d["section"] = s.name }
         if let n = nbSousTaches, n > 0 { d["subtask_count"] = n }
         return d
+    }
+
+    /// Date (ou date et heure) à laquelle le rappel anticipé prévient
+    private static func earlyDate(_ e: EarlyReminder, due: DateComponents) -> String? {
+        let comps: [Calendar.Component] = [.minute, .hour, .day, .weekOfYear, .month]
+        guard let u = EarlyReminder.units.firstIndex(of: e.unit), let d = Dates.date(due),
+              let at = Dates.cal.date(byAdding: comps[u], value: -e.amount, to: d) else { return nil }
+        return due.hour == nil ? Dates.text(Dates.cal.dateComponents([.year, .month, .day], from: at)) : Dates.text(at)
     }
 
     // MARK: - Écriture des rappels
@@ -237,8 +252,13 @@ enum Handlers {
         if let t = a.nonEmpty("title") { r.title = t }
         if a.has("notes") { r.notes = a.nonEmpty("notes") }
         let oldDue = dueDate(r)
+        let oldStart = r.startDateComponents
         if a.has("due") { r.dueDateComponents = try a.nonEmpty("due").map(Dates.components) }
         if a.has("start") { r.startDateComponents = try a.nonEmpty("start").map(Dates.components) }
+        else if a.has("due"), oldStart == nil || oldStart.flatMap(Dates.date) == oldDue {
+            // EventKit recopie l'échéance dans un début vide (sonde 13) ; l'app laisse le début vide : on fait comme l'app
+            r.startDateComponents = nil
+        }
         if a.has("priority") { r.priority = try Prio.parse(a["priority"]) }
         if a.has("alarms") {
             r.alarms?.forEach { r.removeAlarm($0) }
@@ -254,6 +274,32 @@ enum Handlers {
             r.recurrenceRules?.forEach { r.removeRecurrenceRule($0) }
             if let rec = a.object("recurrence") { r.addRecurrenceRule(try Recurrence.parse(rec)) }
         }
+    }
+
+    /// early_reminder : clé absente = inchangé, null ou "" = retiré ; effacer l'échéance retire aussi le rappel anticipé
+    private static func earlyChange(_ a: JSON, _ r: EKReminder, creating: Bool) throws -> EarlyChange? {
+        guard a.has("early_reminder") else { return !creating && a.has("due") && r.dueDateComponents == nil && RK.available ? .remove : nil }
+        guard let o = a.object("early_reminder") else { return creating ? nil : .remove }
+        guard let due = r.dueDateComponents else { throw MCPError("early_reminder needs a due date: set due to the deadline") }
+        var unit = (o.string("unit") ?? "").lowercased().trimmingCharacters(in: .whitespaces)
+        if !unit.isEmpty && !unit.hasSuffix("s") { unit += "s" }
+        guard EarlyReminder.units.contains(unit) else { throw MCPError("early_reminder: unit = minutes, hours, days, weeks or months") }
+        guard let n = o.double("amount"), n >= 1, n == n.rounded() else { throw MCPError("early_reminder: amount must be a whole number, 1 or more") }
+        if due.hour == nil && (unit == "minutes" || unit == "hours") {
+            throw MCPError("early_reminder: the due date has no time, so use days, weeks or months (as the app does), or give due a time")
+        }
+        return .set(EarlyReminder(amount: Int(n), unit: unit))
+    }
+
+    /// L'app affiche comme date du rappel sa première alarme datée au lieu de l'échéance (sonde 12) : le signaler
+    private static func displayWarning(_ r: EKReminder) -> String? {
+        guard (r.alarms ?? []).contains(where: { $0.structuredLocation == nil }),
+              let shown = RK.infos([r.calendarItemIdentifier])[r.calendarItemIdentifier]?.displayed.map(Dates.text) else { return nil }
+        let due = r.dueDateComponents.map(Dates.text)
+        guard shown != due else { return nil }
+        return "the Reminders app shows this reminder on \(shown), the date of its earliest alarm, " +
+            (due.map { "instead of its due date \($0)" } ?? "although it has no due date") +
+            ". For a heads-up that keeps the due date shown, use early_reminder instead of alarms."
     }
 
     private static func extras(_ a: JSON) -> Extras {
@@ -283,13 +329,18 @@ enum Handlers {
             else if let lid = a.nonEmpty("list_id") { r.calendar = try EK.calendar(lid) }
             else { r.calendar = try EK.defaultList() }
             try applyEK(r, a)
+            let early = try earlyChange(a, r, creating: true)
             try ek.save(r, commit: true)
 
             var out: JSON = ["ok": true, "id": r.calendarItemIdentifier, "title": titre]
             var x = extras(a)
             x.parentID = parentID
+            x.early = early
+            var warnings: [String] = []
             do { try RK.apply(r.calendarItemIdentifier, x) }
-            catch { out["warning"] = "reminder created, but \(error)" }
+            catch { warnings.append("reminder created, but \(error)") }
+            if let w = displayWarning(r) { warnings.append(w) }
+            if !warnings.isEmpty { out["warning"] = warnings.joined(separator: " ") }
 
             if let subs = a.objects("subtasks"), !subs.isEmpty {
                 if parentID != nil {
@@ -315,6 +366,7 @@ enum Handlers {
         do {
             let r = try EK.reminder(id)
             try applyEK(r, a)
+            let early = try earlyChange(a, r, creating: false)
             if r.hasChanges { try ek.save(r, commit: true) }
             var listeActuelle = r.calendar?.calendarIdentifier
 
@@ -326,6 +378,7 @@ enum Handlers {
             }
 
             var x = extras(a)
+            x.early = early
             if a.has("parent_id") {
                 let pid = a.nonEmpty("parent_id") ?? ""
                 if !pid.isEmpty {
@@ -336,7 +389,9 @@ enum Handlers {
                 x.parentID = pid
             }
             try RK.apply(id, x)
-            return ["ok": true, "id": id]
+            var out: JSON = ["ok": true, "id": id]
+            if a.has("alarms") || a.has("due"), let w = displayWarning(r) { out["warning"] = w }
+            return out
         } catch {
             return ["ok": false, "id": id, "error": "\(error)"]
         }

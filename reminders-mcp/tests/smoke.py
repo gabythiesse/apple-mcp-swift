@@ -4,7 +4,8 @@
 Starts the binary, calls every tool once on tagged test data
 (lists MCP-TEST-<timestamp>, reminders [mcp-test]), then deletes everything by ID
 and checks nothing is left. Reads are always filtered to the test lists.
-Usage: python3 -I tests/smoke.py [path to binary]
+Usage: python3 -I tests/smoke.py [command and arguments]
+  e.g. python3 -I tests/smoke.py ../bin/AppleMCP reminders   (through the launcher, which holds the Reminders permission)
 """
 import base64
 import datetime as dt
@@ -15,12 +16,12 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BIN = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, ".build/release/RemindersMCP")
+CMD = sys.argv[1:] or [os.path.join(ROOT, ".build/release/RemindersMCP")]
 TS = int(time.time())
 PREFIX = f"MCP-TEST-{TS}"
 PNG = os.path.join(ROOT, "tests", "pixel.png")
 
-proc = subprocess.Popen([BIN], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+proc = subprocess.Popen(CMD, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
 next_id = 0
 fails = []
 
@@ -76,6 +77,7 @@ def read(lists, **kw):
 today = dt.date.today()
 tomorrow = today + dt.timedelta(days=1)
 yesterday = today - dt.timedelta(days=1)
+in3, in8, in10 = (today + dt.timedelta(days=n) for n in (3, 8, 10))
 created_lists = []  # (id, is_group); cleaned up at the end no matter what
 
 try:
@@ -131,7 +133,9 @@ try:
     ]})
     r0 = res["results"]
     check(res["created"] == 3 and res["failed"] == 1, f"3 created, 1 refused (empty title): {res['created']}/{res['failed']}")
-    check(all("warning" not in r for r in r0[:3]), "no ReminderKit warning: " + str([r.get("warning") for r in r0[:3] if "warning" in r]))
+    check(not any(r.get("warning", "").startswith("reminder created, but") for r in r0[:3]), "no ReminderKit warning: " + str([r["warning"] for r in r0[:3] if r.get("warning", "").startswith("reminder created, but")]))
+    check(f"shows this reminder on {tomorrow}T09:00" in r0[0].get("warning", ""), f"dated alarms: warning names the date the app shows: {r0[0].get('warning')}")
+    check(all("warning" not in r for r in r0[1:3]), "no warning without alarms")
     check(len(r0[0].get("subtasks", [])) == 2 and all(s["ok"] for s in r0[0]["subtasks"]), "2 subtasks created")
     FULL, SIMPLE, SEC2 = r0[0]["id"], r0[1]["id"], r0[2]["id"]
     ST1, ST2 = (s["id"] for s in r0[0]["subtasks"])
@@ -146,6 +150,8 @@ try:
     check(c.get("section_id") == S1, f"section: {c.get('section')}")
     check(c.get("recurrence", {}).get("days") == ["monday", "thursday"], f"recurrence: {c.get('recurrence')}")
     check(len(c.get("alarms", [])) == 3, f"alarms: {c.get('alarms')}")
+    check(c.get("displayed_date") == f"{tomorrow}T09:00", f"displayed_date = earliest dated alarm, as in the app: {c.get('displayed_date')}")
+    check("start" not in c, f"no start copied from due (EventKit does it, the app does not): {c.get('start')}")
     check(c.get("subtask_count") == 2, f"subtask_count: {c.get('subtask_count')}")
     check(by_title(rs, "[mcp-test] st1", ).get("parent_id") == FULL, "subtask linked to parent")
     check((by_title(rs, "[mcp-test] section2") or {}).get("section_id") == S1, "2nd reminder placed in S1")
@@ -180,15 +186,55 @@ try:
     rs = read([A], status="all")
     s = by_title(rs, "[mcp-test] simple updated") or {}
     check(s.get("due") == f"{tomorrow}T18:00" and s.get("alarms") == [{"date": f"{tomorrow}T18:00"}], f"due + auto alert: {s.get('alarms')}")
+    check("displayed_date" not in s and "start" not in s, f"alert at due time: the app shows due; start stays empty: {s.get('displayed_date')} {s.get('start')}")
     check(s.get("flagged") is True and s.get("tags") == ["x"] and s.get("url") == "https://example.org", "flag, tag, URL added")
     check(s.get("section_id") == S2 and s.get("priority") == "low", "section S2, priority low")
     c = by_title(rs, "[mcp-test] full") or {}
     check(c.get("tags") == ["mcptest"] and "url" not in c and "flagged" not in c, f"tag removed, URL removed, flag removed: {c.get('tags')}, {c.get('url')}")
     check("section_id" not in c, f"taken out of section: {c.get('section')}")
     check("recurrence" not in c and "alarms" not in c, f"recurrence and alarms removed: {c.get('recurrence')} {c.get('alarms')}")
+    check("displayed_date" not in c, f"without alarms the app shows the due date again: {c.get('displayed_date')}")
     check((by_title(rs, "[mcp-test] section2") or {}).get("parent_id") == FULL, "reminder attached as subtask")
     st1 = by_title(rs, "[mcp-test] st1") or {}
     check("parent_id" not in st1 and st1.get("list_id") == A, "subtask detached, still in A")
+
+    print("== Early reminder (the app's own setting, not an alarm)")
+    res = call("create_reminders", {"reminders": [
+        {"title": "[mcp-test] early", "list_id": C, "due": str(in10), "early_reminder": {"amount": 1, "unit": "weeks"}},
+        {"title": "[mcp-test] early timed", "list_id": C, "due": f"{in10}T09:00", "early_reminder": {"amount": 30, "unit": "minutes"}},
+        {"title": "[mcp-test] alarm before", "list_id": C, "due": str(in10), "alarms": [{"date": f"{in3}T18:00"}]},
+        {"title": "[mcp-test] early without due", "list_id": C, "early_reminder": {"amount": 1, "unit": "days"}},
+        {"title": "[mcp-test] early hours all-day", "list_id": C, "due": str(in10), "early_reminder": {"amount": 2, "unit": "hours"}},
+    ]})
+    r0 = res["results"]
+    check(res["created"] == 3 and res["failed"] == 2, f"3 created, 2 refused (no due, hours on an all-day due): {res['created']}/{res['failed']} {[r.get('error') for r in r0 if not r['ok']]}")
+    check("warning" not in r0[0] and "warning" not in r0[1], f"early reminder: no warning: {r0[0].get('warning')} {r0[1].get('warning')}")
+    check(f"shows this reminder on {in3}T18:00" in r0[2].get("warning", ""), f"alarm before due: warning: {r0[2].get('warning')}")
+    EARLY, EARLYT, ALARM = (r["id"] for r in r0[:3])
+    rs = {r["id"]: r for r in read([C])}
+    e = rs.get(EARLY, {})
+    check(e.get("due") == str(in10) and e.get("early_reminder") == {"amount": 1, "unit": "weeks", "date": str(in3)}, f"early reminder 1 week: {e.get('early_reminder')}")
+    check(bool(e) and not {"displayed_date", "alarms", "start"} & set(e), f"early reminder: the app shows the due date, no alarm, no start: {sorted(e)}")
+    et = rs.get(EARLYT, {})
+    check(et.get("early_reminder") == {"amount": 30, "unit": "minutes", "date": f"{in10}T08:30"}, f"early reminder 30 min: {et.get('early_reminder')}")
+    check(et.get("alarms") == [{"date": f"{in10}T09:00"}] and "displayed_date" not in et, f"timed due: alert at due time, the app shows due: {et.get('alarms')}")
+    al = rs.get(ALARM, {})
+    check(al.get("due") == str(in10) and al.get("displayed_date") == f"{in3}T18:00", f"alarm before due: the app shows the alarm date: {al.get('displayed_date')}")
+    res = call("update_reminders", {"updates": [
+        {"id": EARLY, "early_reminder": {"amount": 2, "unit": "day"}},
+        {"id": EARLYT, "early_reminder": None},
+        {"id": ALARM, "alarms": [], "early_reminder": {"amount": 1, "unit": "weeks"}},
+    ]})
+    check(res["updated"] == 3 and all("warning" not in r for r in res["results"]), f"3 early reminders changed: {[r.get('error') or r.get('warning') for r in res['results'] if not r['ok'] or 'warning' in r]}")
+    rs = {r["id"]: r for r in read([C])}
+    check(rs.get(EARLY, {}).get("early_reminder") == {"amount": 2, "unit": "days", "date": str(in8)}, f"early reminder replaced: {rs.get(EARLY, {}).get('early_reminder')}")
+    check("early_reminder" not in rs.get(EARLYT, {}) and rs.get(EARLYT, {}).get("due") == f"{in10}T09:00", "early reminder removed (null), due kept")
+    al = rs.get(ALARM, {})
+    check(al.get("early_reminder", {}).get("date") == str(in3) and not {"displayed_date", "alarms"} & set(al), f"alarm turned into an early reminder: the app shows due again: {sorted(al)}")
+    call("update_reminders", {"updates": [{"id": EARLY, "due": ""}]})
+    e = {r["id"]: r for r in read([C])}.get(EARLY, {})
+    check(bool(e) and not {"due", "early_reminder", "start"} & set(e), f"due cleared: early reminder removed with it: {sorted(e)}")
+    check("needs a due date" in call("update_reminders", {"updates": [{"id": EARLY, "early_reminder": {"amount": 1, "unit": "days"}}]})["results"][0].get("error", ""), "early reminder refused without due")
 
     print("== Moves")
     res = call("update_reminders", {"updates": [{"id": FULL, "list_id": B}, {"id": ST1, "list_id": B}]})
